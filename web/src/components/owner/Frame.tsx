@@ -89,7 +89,15 @@ export function OwnerFrame({
   const pending = items?.reduce((n, a) => n + a.pendingApprovals, 0) ?? 0;
 
   let body: ReactNode;
-  if (wallet.engineState === "offline") {
+  if (wallet.engineState === "unopened") {
+    body = (
+      <EmptyState panel icon={IconWallet} title="Agent accounts open soon" text="The Purser contracts are not live on Robinhood Chain yet. Once they are, you open an account here and your agents, balances, rules and receipts appear on this page.">
+        <Link href="/how" className="btn btn--secondary">
+          How it works
+        </Link>
+      </EmptyState>
+    );
+  } else if (wallet.engineState === "offline") {
     body = (
       <EmptyState panel icon={IconWallet} title="The engine is not reachable" text="This page shows your agents live from the Purser engine. It will fill in as soon as the engine answers again." />
     );

@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { api } from "@/lib/client";
+import { api, EngineError } from "@/lib/client";
 import { shortAddress } from "@/lib/format";
 import { metamaskSigner, testSigner, type Eip1193Provider, type OwnerSigner, type SignerKind } from "@/lib/owner";
 import { site } from "@/lib/site";
@@ -16,7 +16,8 @@ declare global {
 }
 
 type WalletStatus = "idle" | "connecting" | "connected" | "no-wallet" | "choose";
-type EngineState = "loading" | "ready" | "offline";
+/** "unopened": the engine answers but runs read-only, without Purser contracts on its chain yet. */
+type EngineState = "loading" | "ready" | "offline" | "unopened";
 
 interface WalletState {
   status: WalletStatus;
@@ -99,12 +100,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const configRef = useRef<Promise<EngineConfig | null> | null>(null);
   useEffect(() => {
     let alive = true;
-    const loading = api<EngineConfig>("/v1/config").catch(() => null);
+    let unopened = false;
+    const loading = api<EngineConfig>("/v1/config").catch((e: unknown) => {
+      unopened = e instanceof EngineError && e.code === "no_deployment";
+      return null;
+    });
     configRef.current = loading;
     loading.then((config) => {
       if (!alive) return;
       setEngine(config);
-      setEngineState(config ? "ready" : "offline");
+      setEngineState(config ? "ready" : unopened ? "unopened" : "offline");
     });
     return () => {
       alive = false;

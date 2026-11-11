@@ -1,0 +1,13 @@
+# Build context for the Railway images (engine/Dockerfile, web/Dockerfile): source only.
+**/node_modules
+**/.next
+**/.next-*
+**/dist
+**/*.sqlite
+**/*.sqlite-*
+**/.env
+**/.env.*
+.git
+contracts
+docs
+engine/data
