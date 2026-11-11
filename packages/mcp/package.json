@@ -1,0 +1,32 @@
+{
+  "name": "@purser/mcp",
+  "version": "0.1.0",
+  "description": "MCP server that gives an AI agent its Purser account: pay, check, balance, rules, receipts, sell, invoices.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "purser-mcp": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm --prefix ../sdk run build",
+    "test": "tsx --test --test-concurrency=1 test/*.test.ts",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@purser/sdk": "file:../sdk",
+    "zod": "4.6.7",
+    "viem": "2.57.18"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "4.23.15",
+    "typescript": "^5.9.0"
+  }
+}

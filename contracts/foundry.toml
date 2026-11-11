@@ -1,0 +1,21 @@
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.28"
+# Tests execute with the Osaka rules so the P-256 precompile at 0x100 exists, like on chain 4663.
+# solc 0.8.28 emits prague bytecode (no Osaka opcodes); MCOPY, PUSH0 and TSTORE were checked on the chain.
+evm_version = "osaka"
+optimizer = true
+optimizer_runs = 1
+via_ir = true
+fs_permissions = [{ access = "read", path = "./test/fixtures" }]
+remappings = ["forge-std/=lib/forge-std/src/"]
+
+[profile.default.fuzz]
+runs = 256
+
+[lint]
+lint_on_build = false

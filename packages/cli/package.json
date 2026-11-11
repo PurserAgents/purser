@@ -1,0 +1,30 @@
+{
+  "name": "@purser/cli",
+  "version": "0.1.0",
+  "description": "The purser command: accounts, payments, receipts, firewall checks, audit export and verify, test mode.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "purser": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm --prefix ../sdk run build",
+    "test": "tsx --test --test-concurrency=1 test/*.test.ts",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@purser/sdk": "file:../sdk",
+    "viem": "2.57.18"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "4.23.15",
+    "typescript": "^5.9.0"
+  }
+}

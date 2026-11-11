@@ -1,0 +1,9 @@
+{
+  "name": "purser",
+  "private": true,
+  "description": "Purser is an open source bank account for your AI agent.",
+  "scripts": {
+    "preview": "./preview.sh",
+    "preview:fork": "./preview.sh --fork"
+  }
+}
