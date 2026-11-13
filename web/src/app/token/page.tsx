@@ -3,6 +3,7 @@ import Link from "next/link";
 import { IconArrowRight, IconFile, IconXLogo } from "@/components/Icons";
 import { site } from "@/lib/site";
 import { CopyAddress } from "./CopyAddress";
+import { BurnStatus } from "./BurnStatus";
 
 const TOKEN = "0x3E4587B12ac365407B5c5d788941eAEBcFC18A1E";
 const BURN_POT = "0xD3049f1ef0569D3c9Bf9c44f114a76Bf7CFD404f";
@@ -40,6 +41,8 @@ export default function TokenPage() {
         </div>
       </section>
 
+      <BurnStatus pot={BURN_POT} token={TOKEN} />
+
       <div className="cells cells--3" style={{ marginBottom: "var(--section-y)" }}>
         <div className="cell">
           <IconFile size={18} />
@@ -53,11 +56,13 @@ export default function TokenPage() {
         <div className="cell">
           <IconArrowRight size={18} />
           <h2 className="h4">Buy back and burn</h2>
-          <p className="small muted" style={{ wordBreak: "break-all" }}>
+          <p className="small muted">
             A contract with no owner and no withdraw function buys $PURSER with its share of the fees and burns it, at
-            most every 30 minutes. Anyone can check it:{" "}
+            most every 30 minutes.
+          </p>
+          <p className="small" style={{ marginTop: 8 }}>
             <a className="link" href={`${EXPLORER}/address/${BURN_POT}`} target="_blank" rel="noreferrer">
-              {BURN_POT}
+              Burn pot {BURN_POT.slice(0, 6)}...{BURN_POT.slice(-4)}
             </a>
           </p>
         </div>
