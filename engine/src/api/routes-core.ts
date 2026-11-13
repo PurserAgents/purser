@@ -397,7 +397,7 @@ export function coreRoutes(app: Hono, ctx: Ctx) {
       const b = await body(c, z.object({ name: z.string().default("Test agent"), kind: z.string().optional(), template: z.string().default("research"), fund: zAmount.default("1000000000"), public: z.boolean().default(true), agent: zAddr.optional() }));
       const o = ctx.chain.accounts.owner ?? fail(403, "not_test_mode", "No test owner.");
       const agentAddr = b.agent ?? ctx.chain.accounts.agent?.address ?? fail(400, "bad_request", "agent required");
-      const setup = setupFromTemplate(ctx, b.template, { agent: agentAddr, agentURI: `https://purser.fun/agents/${encodeURIComponent(b.name)}.json` });
+      const setup = setupFromTemplate(ctx, b.template, { agent: agentAddr, agentURI: `https://purseragents.fun/agents/${encodeURIComponent(b.name)}.json` });
       const { predictedSafe, tx } = await prepareCreate(ctx, { owners: [o.address], creator: o.address, setup, salt: BigInt(now()) * 1000n + BigInt(Math.floor(Math.random() * 1000)) });
       const r = await sendAsTestOwner(ctx, tx);
       await ingestReceipt(ctx, r);

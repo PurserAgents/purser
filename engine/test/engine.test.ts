@@ -79,7 +79,7 @@ describe("engine shell: tasks, context, HTTP plumbing (offline engine)", () => {
     const last = await a.get("/v1/demo/firewall");
     assert.equal(last.status, 200);
     assert.deepEqual(last.body.steps, []);
-    const pre = await a.app.request("/v1/health", { method: "OPTIONS", headers: { origin: "https://purser.fun", "access-control-request-method": "GET" } });
+    const pre = await a.app.request("/v1/health", { method: "OPTIONS", headers: { origin: "https://purseragents.fun", "access-control-request-method": "GET" } });
     assert.equal(pre.headers.get("access-control-allow-origin"), "*");
   });
 

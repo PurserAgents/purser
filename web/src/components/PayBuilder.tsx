@@ -19,7 +19,7 @@ export function PayBuilder({ engine, agents, initialAgent }: { engine: string | 
   const [label, setLabel] = useState("Pay this agent");
   const [ready, setReady] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  const src = `${engine ?? "https://purser.fun"}/embed.js`;
+  const src = `${engine ?? "https://purseragents.fun"}/embed.js`;
 
   useEffect(() => {
     if (!engine) return;

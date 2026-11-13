@@ -37,7 +37,7 @@ describe("rule templates (pure)", () => {
   });
 
   it("setupFromTemplate turns a template into the factory setup", () => {
-    const s = setupFromTemplate(stubCtx(), "coding", { agent: a(20), agentURI: "https://purser.fun/agents/x.json" });
+    const s = setupFromTemplate(stubCtx(), "coding", { agent: a(20), agentURI: "https://purseragents.fun/agents/x.json" });
     assert.equal(s.config.agent, a(20));
     assert.equal(s.config.cosigner, null);
     assert.equal(s.config.firewall, a(10));
@@ -51,7 +51,7 @@ describe("rule templates (pure)", () => {
     assert.equal(s.rules[1].rule.maxSingle, (10n ** 16n).toString());
     assert.deepEqual(s.allow, [dep.escrow], "only trading agents get the swap router");
     assert.deepEqual(s.extensions, [dep.recurring]);
-    assert.equal(s.agentURI, "https://purser.fun/agents/x.json");
+    assert.equal(s.agentURI, "https://purseragents.fun/agents/x.json");
   });
 
   it("trading agents get the swap router and extra allowlist entries; co-signer passes through", () => {

@@ -140,7 +140,7 @@ export async function createAccount(
       ],
       allow: [w.dep.escrow, ...(opts.allow ?? [])],
       extensions: [w.dep.recurring],
-      agentURI: "https://purser.fun/agents/test.json",
+      agentURI: "https://purseragents.fun/agents/test.json",
     },
   });
   await sendAsTestOwner(w.ctx, tx);

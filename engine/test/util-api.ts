@@ -41,8 +41,8 @@ export function softPasskey() {
   const y = ("0x" + Buffer.from(jwk.y!, "base64url").toString("hex")) as Hex;
   const N = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551n;
   function assert(challenge: Hex) {
-    const authenticatorData = Buffer.concat([createHash("sha256").update("purser.fun").digest(), Buffer.from([0x05]), Buffer.from([0, 0, 0, 1])]);
-    const clientDataJSON = `{"type":"webauthn.get","challenge":"${Buffer.from(challenge.slice(2), "hex").toString("base64url")}","origin":"https://purser.fun","crossOrigin":false}`;
+    const authenticatorData = Buffer.concat([createHash("sha256").update("purseragents.fun").digest(), Buffer.from([0x05]), Buffer.from([0, 0, 0, 1])]);
+    const clientDataJSON = `{"type":"webauthn.get","challenge":"${Buffer.from(challenge.slice(2), "hex").toString("base64url")}","origin":"https://purseragents.fun","crossOrigin":false}`;
     const data = Buffer.concat([authenticatorData, createHash("sha256").update(clientDataJSON).digest()]);
     const sig = sign("sha256", data, { key: privateKey, dsaEncoding: "ieee-p1363" });
     const r = BigInt("0x" + sig.subarray(0, 32).toString("hex"));

@@ -26,7 +26,7 @@ export async function openTestAgent(ctx: Ctx, name: string, template: string, fu
   const owner = ctx.chain.accounts.owner!;
   const placeholder = "0x0000000000000000000000000000000000000000";
   const { key, secret } = createApiKey(ctx, { safe: placeholder, name: `${name} key`, managed: true });
-  const setup = setupFromTemplate(ctx, template, { agent: key.sessionAddress!, agentURI: `https://purser.fun/agents/${encodeURIComponent(name)}.json` });
+  const setup = setupFromTemplate(ctx, template, { agent: key.sessionAddress!, agentURI: `https://purseragents.fun/agents/${encodeURIComponent(name)}.json` });
   const { predictedSafe, tx } = await prepareCreate(ctx, { owners: [owner.address], creator: owner.address, setup, salt: BigInt(now()) * 1000n + BigInt(Math.floor(Math.random() * 1000)) });
   await ingestReceipt(ctx, await sendAsTestOwner(ctx, tx));
   ctx.db.prepare("UPDATE api_keys SET safe = ? WHERE id = ?").run(predictedSafe, key.id);

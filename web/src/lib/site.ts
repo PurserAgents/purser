@@ -7,8 +7,8 @@ export const site = {
   tagline: "A bank account for your AI agent.",
   description:
     "Give your AI agent money and rules. It pays for the models, services and apps it uses, earns from its own work, and every dollar has a receipt. Funds stay in your own Safe.",
-  domain: "purser.fun",
-  url: "https://purser.fun",
+  domain: "purseragents.fun",
+  url: "https://purseragents.fun",
   github: "https://github.com/PurserAgents",
   x: "https://x.com/PurserAgents",
   contact: null,

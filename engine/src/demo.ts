@@ -63,7 +63,7 @@ export async function runFirewallDemo(ctx: Ctx, opts: { paceMs?: number } = {}) 
     const owner = ctx.chain.accounts.owner!;
     const keyed = createApiKey(ctx, { safe: "0x0000000000000000000000000000000000000000", name: "Scout key", managed: true });
     const session = authAgent(ctx, `Bearer ${keyed.secret}`, "pay").session!;
-    const setup = setupFromTemplate(ctx, "research", { agent: session.address, agentURI: "https://purser.fun/agents/scout.json" });
+    const setup = setupFromTemplate(ctx, "research", { agent: session.address, agentURI: "https://purseragents.fun/agents/scout.json" });
     const { predictedSafe: safe, tx } = await prepareCreate(ctx, { owners: [owner.address], creator: owner.address, setup, salt: BigInt(Date.now()) });
     await ingestReceipt(ctx, await sendAsTestOwner(ctx, tx));
     ctx.db.prepare("UPDATE api_keys SET safe = ? WHERE id = ?").run(lower(safe), keyed.key.id);
