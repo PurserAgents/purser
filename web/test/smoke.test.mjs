@@ -158,7 +158,7 @@ const routes = {
   "/firewall": [],
   "/templates": ["research"],
   "/pay": [],
-  "/token": ["soon"],
+  "/token": ["token"],
   "/economy": [],
   "/directory": [],
   "/leaderboard": [],
@@ -288,10 +288,10 @@ test("the /v1 proxy forwards JSON, errors and the live event stream", async () =
   assert.match(events.body, /event: receipt/);
 });
 
-test("token page says soon and shows no percentages or split", async () => {
+test("token page says $PURSER is live and shows no fee percentages or split", async () => {
   const { body } = await get("/token");
   const text = textOf(body.split('<main id="main">')[1].split("</main>")[0]);
-  assert.match(text, /Soon/);
+  assert.match(text, /\$PURSER is live/);
   assert.doesNotMatch(text, /\d\s?%|percent|split|tax|memecoin/i);
 });
 

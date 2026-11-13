@@ -3,6 +3,7 @@ import { after, before, describe, it } from "node:test";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { heartbeatTypedData } from "../../packages/sdk/src/eip712.ts";
 import { listReceipts } from "../src/receipts.ts";
+import { listVerdicts } from "../src/firewall.ts";
 import { chainNow, chargeSubscriptions, settleStreams } from "../src/recurring.ts";
 import { createAccount, makeWorld, usdg, usdgBalance, type World } from "./harness.ts";
 import { api, type Api } from "./util-api.ts";
@@ -100,5 +101,31 @@ describe("streams and subscriptions (7.1-7.3, local)", () => {
     const r = await e.post("/v1/subscriptions", { payee: payee.address, amount: usdg(400).toString(), periodSeconds: 86400, maxCharges: 1 }, key);
     assert.equal(r.status, 422);
     assert.ok(r.body.verdict.reasons.some((x: any) => x.code === "max_single"));
+  });
+
+  it("every charge gets a fresh firewall check: a payee that turns bad halfway is never paid again", async () => {
+    const bad = privateKeyToAccount(generatePrivateKey());
+    const sub = await e.post("/v1/subscriptions", { payee: bad.address, amount: usdg(5).toString(), periodSeconds: 86400, maxCharges: 10 }, key);
+    assert.equal(sub.status, 200, JSON.stringify(sub.body));
+    const paid = await usdgBalance(w, bad.address);
+    assert.equal(paid, usdg(5), "the first period at creation");
+    // the payee's wallet now hands control to delegated code (EIP-7702), the way drainers set up forwarding wallets
+    await w.rpc("anvil_setCode", [bad.address, "0xef0100" + "deadbeef".repeat(5)]);
+    await warp(86400);
+    assert.equal(await chargeSubscriptions(w.ctx), 0, "the firewall refuses to sign this charge");
+    assert.equal(await usdgBalance(w, bad.address), paid);
+    const v = listVerdicts(w.ctx, { safe, decision: "block", limit: 1 })[0];
+    assert.equal(v.reasons.some((r) => r.code === "delegated_eoa"), true, JSON.stringify(v.reasons));
+    // and nobody can charge it around the engine: the contract wants the firewall's signature for this one payout
+    const { encodeFunctionData } = await import("viem");
+    const { purserRecurringAbi } = await import("../../packages/sdk/src/abi.ts");
+    await assert.rejects(
+      w.ctx.chain.pub.call({ account: bad.address, to: w.dep.recurring, data: encodeFunctionData({ abi: purserRecurringAbi, functionName: "charge", args: [BigInt(sub.body.subscriptionId)] }) }),
+      /FirewallRequired|reverted/,
+    );
+    // checked again later, still blocked, still unpaid
+    await warp(3700);
+    assert.equal(await chargeSubscriptions(w.ctx), 0);
+    assert.equal(await usdgBalance(w, bad.address), paid);
   });
 });

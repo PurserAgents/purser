@@ -88,7 +88,7 @@ export function purserDomain(chainId: number, module: Address) {
 }
 
 export function recurringDomain(chainId: number, recurring: Address) {
-  return { name: "Purser Recurring", version: "1", chainId, verifyingContract: recurring } as const;
+  return { name: "Purser Recurring", version: "2", chainId, verifyingContract: recurring } as const; // v2: a fresh firewall signature on every payout
 }
 
 export function payTypedData(chainId: number, module: Address, p: PayIntent) {

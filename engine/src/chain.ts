@@ -189,6 +189,7 @@ export const REVERT_WORDS: Record<string, string> = {
   BadParams: "The parameters are not valid.",
   NotAllowed: "This party is not allowed to do this.",
   NotDue: "Nothing is due yet.",
+  FirewallRequired: "This account has a firewall, so every recurring payment needs a fresh firewall signature.",
   WrongStatus: "The job is not in the right state for this.",
   TooEarly: "It is too early for this.",
   TransferFailed: "The transfer failed.",

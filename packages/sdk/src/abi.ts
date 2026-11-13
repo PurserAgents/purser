@@ -142,6 +142,10 @@ export const purserRecurringAbi = parseAbi([
   "function stopStream(uint256 id, uint256 nonce, uint256 deadline, bytes sigs)",
   "function createSubscription(address safe, address payee, address token, uint128 amount, uint64 period, uint32 maxCharges, uint256 nonce, uint256 deadline, bytes sigs) returns (uint256)",
   "function charge(uint256 id)",
+  "function chargeWithFirewall(uint256 id, uint256 deadline, bytes fwSig)",
+  "function settleWithFirewall(uint256 id, uint256 maxAmount, uint256 deadline, bytes fwSig) returns (uint256)",
+  "function chargeDigest(uint256 kind, uint256 id, uint256 from, uint256 maxAmount, uint256 deadline) view returns (bytes32)",
+  "function CHARGE_TYPEHASH() view returns (bytes32)",
   "function cancelSubscription(uint256 id, uint256 nonce, uint256 deadline, bytes sigs)",
   "function streamOpHash(address payee, address token, uint256 rate, uint256 maxDuration, uint256 grace) pure returns (bytes32)",
   "function subscriptionOpHash(address payee, address token, uint256 amount, uint256 period, uint256 maxCharges) pure returns (bytes32)",
@@ -163,6 +167,8 @@ export const purserRecurringAbi = parseAbi([
   "error NotAllowed()",
   "error NotDue()",
   "error BadSignature()",
+  "error FirewallRequired()",
+  "error Expired()",
 ]);
 
 export const purserEscrowAbi = parseAbi([

@@ -9,6 +9,12 @@ import {PurserModule} from "./PurserModule.sol";
 ///         period). An account opts in by enabling this contract as an extension in PurserModule. Creating a stream
 ///         or a subscription needs the agent's signature (plus co-sign, firewall and owner approval by the account's
 ///         rules); every settlement is a payment through the module's spending rules. Holds no funds.
+///
+///         Version 2: when the account has a firewall key, every charge and every stream payout needs a fresh
+///         signature from that key, made for that one payment (its id, the period or second it starts at, the most
+///         it may pay and a deadline). So each recurring payment is checked again when it is paid, not only when it
+///         was set up, and a payee that turned bad in between cannot be paid. Accounts without a firewall key work
+///         as before: anyone may charge or settle what is due.
 contract PurserRecurring {
     bytes32 public constant STREAM_TYPEHASH = keccak256(
         "Stream(address payee,address token,uint256 ratePerSecond,uint256 maxDuration,uint256 grace)"
@@ -17,6 +23,10 @@ contract PurserRecurring {
         keccak256("Subscription(address payee,address token,uint256 amount,uint256 period,uint256 maxCharges)");
     bytes32 public constant STOP_TYPEHASH = keccak256("Stop(uint256 kind,uint256 id)");
     bytes32 public constant HEARTBEAT_TYPEHASH = keccak256("Heartbeat(uint256 streamId,uint256 upTo)");
+    /// @dev kind 1 = stream payout, 2 = subscription charge. `from` is the stream's settledUntil or the
+    ///      subscription's nextDue, so a signature pays exactly one payout and can never be used again.
+    bytes32 public constant CHARGE_TYPEHASH =
+        keccak256("Charge(uint256 kind,uint256 id,uint256 from,uint256 maxAmount,uint256 deadline)");
     uint256 public constant MIN_PERIOD = 1 hours;
 
     PurserModule public immutable MODULE;
@@ -68,6 +78,8 @@ contract PurserRecurring {
     error NotAllowed();
     error NotDue();
     error BadSignature();
+    error FirewallRequired();
+    error Expired();
 
     constructor(PurserModule module) {
         MODULE = module;
@@ -75,7 +87,7 @@ contract PurserRecurring {
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
                 keccak256("Purser Recurring"),
-                keccak256("1"),
+                keccak256("2"),
                 block.chainid,
                 address(this)
             )
@@ -145,12 +157,43 @@ contract PurserRecurring {
         amount = uint256(until - s.settledUntil) * s.rate;
     }
 
-    /// @notice Anyone may settle; the payment goes through the module's rules.
+    /// @notice Anyone may settle what is due, for an account without a firewall key. The payment goes through the
+    ///         module's rules.
     function settle(uint256 id) public returns (uint256 amount) {
         Stream storage s = streams[id];
         if (s.safe == address(0)) revert BadParams();
+        if (_firewallOf(s.safe) != address(0)) revert FirewallRequired();
+        return _settle(id, type(uint256).max);
+    }
+
+    /// @notice Settles with the firewall's signature for this one payout, paying at most `maxAmount`. Whatever is
+    ///         due beyond it stays due for the next payout.
+    function settleWithFirewall(uint256 id, uint256 maxAmount, uint256 deadline, bytes calldata fwSig)
+        external
+        returns (uint256 amount)
+    {
+        Stream storage s = streams[id];
+        if (s.safe == address(0)) revert BadParams();
+        _checkFirewall(s.safe, 1, id, s.settledUntil, maxAmount, deadline, fwSig);
+        return _settle(id, maxAmount);
+    }
+
+    /// @dev The final payout when a stream is stopped. Only this contract calls it, and only for an account without
+    ///      a firewall key; with one, what is due stays due and is paid with the firewall's signature like any other.
+    function settleOnStop(uint256 id) external returns (uint256) {
+        if (msg.sender != address(this)) revert NotAllowed();
+        return _settle(id, type(uint256).max);
+    }
+
+    function _settle(uint256 id, uint256 maxAmount) internal returns (uint256 amount) {
+        Stream storage s = streams[id];
         uint64 until;
         (amount, until) = accrued(id);
+        if (amount > maxAmount) {
+            uint256 secs = maxAmount / s.rate;
+            amount = secs * s.rate;
+            until = s.settledUntil + uint64(secs);
+        }
         if (amount == 0) return 0;
         s.settledUntil = until;
         MODULE.extPay(s.safe, s.token, s.payee, amount, bytes32(id));
@@ -163,7 +206,9 @@ contract PurserRecurring {
         if (s.safe == address(0)) revert BadParams();
         _authorizeStop(s.safe, s.payee, s.token, 1, id, nonce, deadline, sigs);
         if (s.end > block.timestamp) s.end = uint64(block.timestamp);
-        try this.settle(id) {} catch {}
+        if (_firewallOf(s.safe) == address(0)) {
+            try this.settleOnStop(id) {} catch {}
+        }
         emit StreamStopped(id, msg.sender);
     }
 
@@ -200,11 +245,26 @@ contract PurserRecurring {
         id = ++subscriptionCount;
         subscriptions[id] = Subscription(safe, payee, token, amount, period, uint64(block.timestamp), maxCharges, true);
         emit SubscriptionCreated(id, safe, payee, token, amount, period);
-        charge(id);
+        _charge(id); // the first period: setting up the subscription was already signed by the firewall
     }
 
-    /// @notice Anyone may charge a due subscription; the payment goes through the module's rules.
+    /// @notice Anyone may charge a due subscription of an account without a firewall key. The payment goes through
+    ///         the module's rules.
     function charge(uint256 id) public {
+        Subscription storage s = subscriptions[id];
+        if (s.safe != address(0) && _firewallOf(s.safe) != address(0)) revert FirewallRequired();
+        _charge(id);
+    }
+
+    /// @notice Charges a due subscription with the firewall's signature for this one charge.
+    function chargeWithFirewall(uint256 id, uint256 deadline, bytes calldata fwSig) external {
+        Subscription storage s = subscriptions[id];
+        if (!s.active || s.chargesLeft == 0 || block.timestamp < s.nextDue) revert NotDue();
+        _checkFirewall(s.safe, 2, id, s.nextDue, s.amount, deadline, fwSig);
+        _charge(id);
+    }
+
+    function _charge(uint256 id) internal {
         Subscription storage s = subscriptions[id];
         if (!s.active || s.chargesLeft == 0 || block.timestamp < s.nextDue) revert NotDue();
         s.nextDue += s.period;
@@ -237,6 +297,34 @@ contract PurserRecurring {
         if (msg.sender == payee || msg.sender == safe || ISafe(safe).isOwner(msg.sender)) return;
         bytes32 opHash = keccak256(abi.encode(STOP_TYPEHASH, kind, id));
         if (!MODULE.authorizeAgentOp(safe, opHash, token, 0, nonce, deadline, sigs)) revert NotAllowed();
+    }
+
+    function _firewallOf(address safe) internal view returns (address) {
+        return MODULE.getAccount(safe).config.firewall;
+    }
+
+    /// @notice The digest the firewall key signs for one payout.
+    function chargeDigest(uint256 kind, uint256 id, uint256 from, uint256 maxAmount, uint256 deadline)
+        public
+        view
+        returns (bytes32)
+    {
+        return _digest(keccak256(abi.encode(CHARGE_TYPEHASH, kind, id, from, maxAmount, deadline)));
+    }
+
+    function _checkFirewall(
+        address safe,
+        uint256 kind,
+        uint256 id,
+        uint256 from,
+        uint256 maxAmount,
+        uint256 deadline,
+        bytes calldata fwSig
+    ) internal view {
+        address fw = _firewallOf(safe);
+        if (fw == address(0)) return; // no firewall on this account: nothing more to check
+        if (block.timestamp > deadline) revert Expired();
+        if (_recover(chargeDigest(kind, id, from, maxAmount, deadline), fwSig) != fw) revert BadSignature();
     }
 
     function _isPayeeAgent(address payee, address signer) internal view returns (bool) {

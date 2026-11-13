@@ -263,6 +263,10 @@ export interface FirewallInput {
   trigger?: string | null;
   intentId: string | null;
   category?: string;
+  /** A payout of a plan the owner and the firewall already agreed to (a subscription charge, a stream payout): the
+   *  amount is not news, so its share of the balance and a contract payee only warn. Everything about the payee is
+   *  checked fresh. */
+  agreed?: boolean;
 }
 
 export interface FirewallResult {
@@ -321,7 +325,7 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
     const t = ctx.tokens.infoSync(token);
     const share = Number((out * 10_000n) / before) / 100;
     if (share >= 50)
-      add("drain", "block", "This would drain the account", `It moves ${fmt(out, t.decimals)} ${t.symbol}, ${share.toFixed(0)}% of the ${fmt(before, t.decimals)} ${t.symbol} in the account, in one step.`);
+      add("drain", input.agreed ? "warn" : "block", "This would drain the account", `It moves ${fmt(out, t.decimals)} ${t.symbol}, ${share.toFixed(0)}% of the ${fmt(before, t.decimals)} ${t.symbol} in the account, in one step.`);
     else if (share >= 25)
       add("large_share", "warn", "A large share of the balance", `It moves ${share.toFixed(0)}% of the account's ${t.symbol}.`);
   }
@@ -334,7 +338,7 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
     const delegate = lower(`0x${code.slice(8, 48)}`);
     add("delegated_eoa", "block", "The payee's wallet runs delegated code", `The payee is a wallet that hands control to the contract ${delegate} (EIP-7702). Wallets like this are often set up to forward everything they receive.`);
   } else if (code && code !== "0x" && !known) {
-    add("unknown_contract", input.kind === "pay" ? "warn" : "block", "Unknown contract", "The other side is a contract this account has never paid and that is not on the owner's list.");
+    add("unknown_contract", input.kind === "pay" || input.agreed ? "warn" : "block", "Unknown contract", "The other side is a contract this account has never paid and that is not on the owner's list.");
   } else if (!known && input.amount > 0n) {
     add("new_counterparty", "info", "First payment to this address", "This account has not paid this address before.");
   }

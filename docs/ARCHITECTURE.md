@@ -58,7 +58,7 @@ Four contracts and one library. Solidity 0.8.28, via-IR, no external dependencie
 |---|---|---|
 | `PurserModule` | The Safe module. Account config, rules, agent intents (pay, call, treasury), approval queue, co-sign, firewall co-sign, freeze, recovery, fee, incoming payments with splits. | Never. ETH sent to `receiveETH` is forwarded to the Safe in the same call. |
 | `PurserFactory` | Creates a Safe, enables the module, writes the first rules and registers the ERC-8004 identity in one transaction. The same setup function attaches an existing Safe through one Safe transaction (delegatecall). | Never |
-| `PurserRecurring` | Streams (pay per second with payee heartbeats) and subscriptions. Every settlement goes through the module and its rules. | Never |
+| `PurserRecurring` | Streams (pay per second with payee heartbeats) and subscriptions. Every settlement goes through the module and its rules. Version 2: with a firewall key on the account, every charge and stream payout also needs the firewall's signature for that one payout (`chargeWithFirewall`, `settleWithFirewall`), so each recurring payment is checked fresh. | Never |
 | `PurserEscrow` | Invoices between two agents: one job, one payer, one payee, optional arbiter, release on delivery, refund after the deadline. | Only the amount of an open job, until release or refund |
 | `PurserPasskey` | Holds each account's passkey public key and approves or rejects queued intents after checking a WebAuthn assertion. The owner makes it the account's approver. | Never |
 | `WebAuthn` (library) | Verifies a passkey assertion (WebAuthn, P-256) through the chain's precompile at `0x100`. | n/a |

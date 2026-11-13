@@ -4,19 +4,20 @@ import type { PrivateKeyAccount } from "viem/accounts";
 import { z } from "zod";
 import { purserRecurringAbi } from "../../packages/sdk/src/abi.ts";
 import { agentOpDigest, agentOpTypedData, packSignatures, randomNonce } from "../../packages/sdk/src/eip712.ts";
-import type { PayResult, Stream, Subscription } from "../../packages/sdk/src/schema.ts";
+import type { PayResult, Stream, Subscription, Verdict } from "../../packages/sdk/src/schema.ts";
 import { readRule } from "./accounts.ts";
 import { registerRoutes } from "./api/registry.ts";
 import { agent, body, param, safeParam, send, zAddr, zAmount, zHex } from "./api/http.ts";
 import { explainRevert } from "./chain.ts";
 import { chainNow, requireDep, type Ctx } from "./ctx.ts";
 import { registerTask } from "./engine.ts";
-import { evaluate } from "./firewall.ts";
+import { evaluate, getVerdict } from "./firewall.ts";
 import { ingestReceipt, onExtension, tagTx } from "./indexer.ts";
 import { resumers } from "./intents.ts";
 import { checkPolicy } from "./policy.ts";
 import { getIntentRow, setIntent } from "./receipts.ts";
-import { fail, id, json, lower, now, parseJson } from "./util.ts";
+import { fail, id, json, lower, now, parseJson, sameAddress } from "./util.ts";
+import { kvGet, kvSet } from "./db.ts";
 
 // ---------------------------------------------------------------------------------------------------- state from chain
 
@@ -279,7 +280,73 @@ async function relay(ctx: Ctx, data: Hex, category: string) {
   return r;
 }
 
-/** Settles every stream with something due. A settlement the rules refuse leaves the stream unpaid (and visible). */
+/**
+ * Recurring contract v2: an account with a firewall key needs a fresh firewall signature for every payout. Each one
+ * gets its own firewall verdict first (simulated, checked, stored like any payment), and the firewall key signs only
+ * that payout: its id, where it starts (the stream's settledUntil or the subscription's nextDue), the most it may pay
+ * and a short deadline. A blocked payout is not signed, so it cannot be paid by anyone, and it is checked again at most
+ * once an hour.
+ */
+export const PAYOUT_RECHECK = 3600;
+const PAYOUT_DEADLINE = 600;
+
+type Payout = { kind: "stream" | "subscription"; id: string; safe: Address; payee: Address; token: Address; amount: bigint; from: bigint };
+
+export async function payoutData(ctx: Ctx, p: Payout): Promise<{ data: Hex; blocked: null } | { data: null; blocked: Verdict }> {
+  const dep = requireDep(ctx);
+  const sid = BigInt(p.id);
+  const policy = await checkPolicy(ctx, p.safe, [{ token: p.token, amount: p.amount, to: p.payee }], { kind: "pay" });
+  if (!policy.firewall) {
+    return {
+      data: p.kind === "stream"
+        ? encodeFunctionData({ abi: purserRecurringAbi, functionName: "settle", args: [sid] })
+        : encodeFunctionData({ abi: purserRecurringAbi, functionName: "charge", args: [sid] }),
+      blocked: null,
+    };
+  }
+  policy.needsApproval = false; // the owner already agreed to the whole plan when it was set up
+  policy.needsCosign = false;
+  const blockedKey = `payout_blocked:${p.kind}:${p.id}:${p.from}`;
+  const last = parseJson<{ t: number; v: string } | null>(kvGet(ctx.db, blockedKey), null);
+  const t = await chainNow(ctx);
+  if (last && t - last.t < PAYOUT_RECHECK) {
+    const v = getVerdict(ctx, last.v);
+    if (v) return { data: null, blocked: v };
+  }
+  const fw = ctx.chain.accounts.firewall;
+  const deadline = BigInt(t + PAYOUT_DEADLINE);
+  let fwSig: Hex = "0x";
+  if (!fw || !sameAddress(fw.address, policy.firewall)) {
+    policy.reasons.push({ code: "firewall_key", severity: "block", title: "Firewall key mismatch", detail: "The account requires a firewall signature from a key this engine does not hold." });
+  } else {
+    const digest = await ctx.chain.pub.readContract({ address: dep.recurring, abi: purserRecurringAbi, functionName: "chargeDigest", args: [p.kind === "stream" ? 1n : 2n, sid, p.from, p.amount, deadline] });
+    fwSig = await fw.sign({ hash: digest });
+  }
+  const data = p.kind === "stream"
+    ? encodeFunctionData({ abi: purserRecurringAbi, functionName: "settleWithFirewall", args: [sid, p.amount, deadline, fwSig] })
+    : encodeFunctionData({ abi: purserRecurringAbi, functionName: "chargeWithFirewall", args: [sid, deadline, fwSig] });
+  const { verdict } = await evaluate(ctx, {
+    safe: p.safe,
+    kind: p.kind,
+    to: p.payee,
+    token: p.token,
+    amount: p.amount,
+    tx: { from: ctx.chain.accounts.relayer?.address ?? p.safe, to: dep.recurring, data },
+    policy,
+    trigger: null,
+    intentId: null,
+    category: p.kind,
+    agreed: true,
+  });
+  if (verdict.decision === "block") {
+    kvSet(ctx.db, blockedKey, json({ t, v: verdict.id }));
+    ctx.bus.emit(p.kind, p.safe, { event: "payout_blocked", id: p.id, verdict: verdict.id, reason: verdict.summary });
+    return { data: null, blocked: verdict };
+  }
+  return { data, blocked: null };
+}
+
+/** Settles every stream with something due. A settlement the rules or the firewall refuse leaves it unpaid (and visible). */
 export async function settleStreams(ctx: Ctx) {
   if (!ctx.chain.broadcast) return 0;
   let n = 0;
@@ -289,7 +356,10 @@ export async function settleStreams(ctx: Ctx) {
     const [due] = await ctx.chain.pub.readContract({ address: dep.recurring, abi: purserRecurringAbi, functionName: "accrued", args: [BigInt(s.id)] });
     if (due === 0n) continue;
     try {
-      await relay(ctx, encodeFunctionData({ abi: purserRecurringAbi, functionName: "settle", args: [BigInt(s.id)] }), "stream");
+      const chain = await ctx.chain.pub.readContract({ address: dep.recurring, abi: purserRecurringAbi, functionName: "streams", args: [BigInt(s.id)] });
+      const p = await payoutData(ctx, { kind: "stream", id: s.id, safe: s.safe, payee: s.payee, token: s.token.address, amount: due, from: BigInt(chain[6]) });
+      if (!p.data) continue;
+      await relay(ctx, p.data, "stream");
       n++;
     } catch (e) {
       ctx.bus.emit("stream", s.safe, { event: "settle_failed", id: s.id, reason: explainRevert(e) });
@@ -301,10 +371,12 @@ export async function settleStreams(ctx: Ctx) {
 export async function chargeSubscriptions(ctx: Ctx) {
   if (!ctx.chain.broadcast) return 0;
   let n = 0;
-  const due = ctx.db.prepare("SELECT id, safe FROM subscriptions WHERE active = 1 AND charges_left > 0 AND next_due <= ?").all(await chainNow(ctx)) as { id: string; safe: string }[];
+  const due = ctx.db.prepare("SELECT id, safe, payee, token, amount, next_due FROM subscriptions WHERE active = 1 AND charges_left > 0 AND next_due <= ?").all(await chainNow(ctx)) as { id: string; safe: Address; payee: Address; token: Address; amount: string; next_due: number }[];
   for (const s of due) {
     try {
-      await relay(ctx, encodeFunctionData({ abi: purserRecurringAbi, functionName: "charge", args: [BigInt(s.id)] }), "subscription");
+      const p = await payoutData(ctx, { kind: "subscription", id: s.id, safe: s.safe, payee: s.payee, token: s.token, amount: BigInt(s.amount), from: BigInt(s.next_due) });
+      if (!p.data) continue;
+      await relay(ctx, p.data, "subscription");
       n++;
     } catch (e) {
       ctx.bus.emit("subscription", s.safe, { event: "charge_failed", id: s.id, reason: explainRevert(e) });

@@ -241,4 +241,105 @@ contract RecurringTest is Base {
         vm.expectRevert(PurserModule.NotExtension.selector);
         recurring.settle(id);
     }
+
+    // ------------------------------------------------------------------ v2: a fresh firewall check on every payout
+
+    function _useFirewall() internal {
+        PurserModule.Config memory c = _config();
+        c.firewall = firewall;
+        vm.prank(safe);
+        module.setConfig(c);
+    }
+
+    function _bothSigs(bytes32 digest) internal view returns (bytes memory) {
+        return bytes.concat(_agentSig(digest), _sig(firewallPk, digest));
+    }
+
+    function _subFw(uint128 amount, uint64 period, uint32 maxCharges) internal returns (uint256 id) {
+        uint256 n = nextNonce++;
+        uint256 d = vm.getBlockTimestamp() + 1 hours;
+        bytes32 op = recurring.subscriptionOpHash(payee, address(usd), amount, period, maxCharges);
+        bytes memory sig = _bothSigs(_agentOpDigest(safe, address(recurring), op, address(usd), uint256(amount) * maxCharges, n, d));
+        id = recurring.createSubscription(safe, payee, address(usd), amount, period, maxCharges, n, d, sig);
+    }
+
+    function _streamFw(uint128 rate, uint64 dur, uint32 grace) internal returns (uint256 id) {
+        uint256 n = nextNonce++;
+        uint256 d = vm.getBlockTimestamp() + 1 hours;
+        bytes32 op = recurring.streamOpHash(payee, address(usd), rate, dur, grace);
+        id = recurring.createStream(safe, payee, address(usd), rate, dur, grace, n, d, _bothSigs(_agentOpDigest(safe, address(recurring), op, address(usd), uint256(rate) * dur, n, d)));
+    }
+
+    function _fwSig(uint256 kind, uint256 id, uint256 from, uint256 maxAmount, uint256 deadline, uint256 pk) internal view returns (bytes memory) {
+        return _sig(pk, recurring.chargeDigest(kind, id, from, maxAmount, deadline));
+    }
+
+    function test_v2_subscriptionCharge_needsAFreshFirewallSignature() public {
+        _useFirewall();
+        uint256 id = _subFw(5e6, 1 days, 5);
+        assertEq(usd.balanceOf(payee), 5e6, "the first period is paid at creation, which the firewall signed");
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        vm.expectRevert(PurserRecurring.FirewallRequired.selector);
+        recurring.charge(id);
+        (,,,,, uint64 due,,) = recurring.subscriptions(id);
+        uint256 d = vm.getBlockTimestamp() + 10 minutes;
+        bytes memory wrongKey = _fwSig(2, id, due, 5e6, d, agentPk);
+        bytes memory good = _fwSig(2, id, due, 5e6, d, firewallPk);
+        vm.expectRevert(PurserRecurring.BadSignature.selector);
+        recurring.chargeWithFirewall(id, d, wrongKey);
+        vm.prank(payee); // the payee may send it, but only with the firewall's signature
+        recurring.chargeWithFirewall(id, d, good);
+        assertEq(usd.balanceOf(payee), 10e6);
+        // the same signature can never pay the next period
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        vm.expectRevert(PurserRecurring.BadSignature.selector);
+        recurring.chargeWithFirewall(id, vm.getBlockTimestamp() + 10 minutes, good);
+        vm.expectRevert(PurserRecurring.Expired.selector);
+        recurring.chargeWithFirewall(id, d, good);
+        assertEq(usd.balanceOf(payee), 10e6);
+    }
+
+    function test_v2_streamPayout_needsTheFirewall_andIsCappedByIt() public {
+        _useFirewall();
+        uint256 t0 = vm.getBlockTimestamp();
+        uint256 id = _streamFw(1_000, 1 days, 600);
+        vm.warp(t0 + 100);
+        recurring.heartbeat(id, uint64(t0 + 100), _beatSig(id, uint64(t0 + 100)));
+        vm.expectRevert(PurserRecurring.FirewallRequired.selector);
+        recurring.settle(id);
+        uint256 d = vm.getBlockTimestamp() + 10 minutes;
+        bytes memory sig = _fwSig(1, id, t0, 40_000, d, firewallPk);
+        recurring.settleWithFirewall(id, 40_000, d, sig);
+        assertEq(usd.balanceOf(payee), 40_000, "paid only up to the amount the firewall signed for");
+        vm.expectRevert(PurserRecurring.BadSignature.selector);
+        recurring.settleWithFirewall(id, 40_000, d, sig); // used: the stream moved on
+        (uint256 rest,) = recurring.accrued(id);
+        assertEq(rest, 60_000, "the rest stays due");
+        recurring.settleWithFirewall(id, rest, d, _fwSig(1, id, t0 + 40, rest, d, firewallPk));
+        assertEq(usd.balanceOf(payee), 100_000);
+    }
+
+    function test_v2_stoppingAStream_paysNothingWithoutTheFirewall() public {
+        _useFirewall();
+        uint256 t0 = vm.getBlockTimestamp();
+        uint256 id = _streamFw(1_000, 1 days, 600);
+        vm.warp(t0 + 50);
+        vm.prank(payee);
+        recurring.stopStream(id, 0, 0, "");
+        assertEq(usd.balanceOf(payee), 0, "a payee stopping its own stream cannot pay itself past the firewall");
+        (uint256 due,) = recurring.accrued(id);
+        assertEq(due, 50_000);
+        uint256 d = vm.getBlockTimestamp() + 10 minutes;
+        recurring.settleWithFirewall(id, due, d, _fwSig(1, id, t0, due, d, firewallPk));
+        assertEq(usd.balanceOf(payee), 50_000);
+    }
+
+    function test_v2_withoutAFirewall_nothingChanges() public {
+        uint256 id = _sub(1e6, 1 days, 3);
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        recurring.chargeWithFirewall(id, 0, ""); // no firewall key on the account: no signature needed
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        recurring.charge(id);
+        assertEq(usd.balanceOf(payee), 3e6);
+    }
 }

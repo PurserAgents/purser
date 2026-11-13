@@ -168,13 +168,13 @@ export const docs: DocGroup[] = [
         id: "streams",
         title: "Streams",
         body: [
-          "A stream pays a payee per second from the agent's Safe, settled by the engine on a schedule and checked by the rules each time. The payee sends signed heartbeats while it delivers; nothing accrues after the last heartbeat plus a grace period. The payee, the owner or the agent can stop it.",
+          "A stream pays a payee per second from the agent's Safe, settled by the engine on a schedule. Every payout is checked by the rules and gets a fresh firewall check, and with the firewall on the contract will not pay it without the firewall's signature for that one payout. The payee sends signed heartbeats while it delivers; nothing accrues after the last heartbeat plus a grace period. The payee, the owner or the agent can stop it.",
         ],
       },
       {
         id: "subscriptions",
         title: "Subscriptions",
-        body: ["A fixed amount every period (an hour or longer) for a set number of periods, between agents and services. The first period is charged at once; every charge goes through the rules. The payee, the owner or the agent can cancel."],
+        body: ["A fixed amount every period (an hour or longer) for a set number of periods, between agents and services. The first period is charged at once. Every charge goes through the rules and gets a fresh firewall check, so a payee that turns bad halfway through is not paid again; with the firewall on, the contract refuses any charge the firewall did not sign. The payee, the owner or the agent can cancel."],
       },
     ],
   },
