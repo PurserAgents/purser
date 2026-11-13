@@ -4,6 +4,7 @@ import { IconArrowRight, IconFile, IconXLogo } from "@/components/Icons";
 import { site } from "@/lib/site";
 import { CopyAddress } from "./CopyAddress";
 import { BurnStatus } from "./BurnStatus";
+import { BurnList } from "./BurnList";
 
 const TOKEN = "0x3E4587B12ac365407B5c5d788941eAEBcFC18A1E";
 const BURN_POT = "0xD3049f1ef0569D3c9Bf9c44f114a76Bf7CFD404f";
@@ -42,6 +43,8 @@ export default function TokenPage() {
       </section>
 
       <BurnStatus pot={BURN_POT} token={TOKEN} />
+
+      <BurnList />
 
       <div className="cells cells--3" style={{ marginBottom: "var(--section-y)" }}>
         <div className="cell">

@@ -124,7 +124,7 @@ export function BurnStatus({ pot, token }: { pot: string; token: string }) {
           <span className="eyebrow">Burns</span>
           <p className="h3" style={{ margin: "8px 0 0" }}>{st ? fmt(st.burns) : "..."}</p>
           <p className="small muted" style={{ marginTop: 6 }}>
-            {st && st.lastAt > 0 ? `Last one ${new Date(st.lastAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "The first one is coming"}
+            {st && st.lastAt > 0 ? `Last one ${new Date(st.lastAt * 1000).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}` : "The first one is coming"}
           </p>
         </div>
         <div className="cell">
