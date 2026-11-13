@@ -56,7 +56,7 @@ export const navGroups: NavGroup[] = [
       { href: "/firewall", label: "Watch an attack get blocked", text: "A hidden instruction meets the firewall" },
       { href: "/templates", label: "Rule templates", text: "Ready rules for each kind of agent" },
       { href: "/pay", label: "Pay button", text: "One script tag to get paid" },
-      { href: "/token", label: "Token", text: "Soon" },
+      { href: "/token", label: "Token", text: "$PURSER is live" },
     ],
   },
   { label: "Dashboard", items: ownerNav },

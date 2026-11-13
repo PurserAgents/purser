@@ -1,55 +1,75 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { IconArrowRight, IconClock, IconFile, IconXLogo } from "@/components/Icons";
+import { IconArrowRight, IconFile, IconXLogo } from "@/components/Icons";
 import { site } from "@/lib/site";
+import { CopyAddress } from "./CopyAddress";
+
+const TOKEN = "0x3E4587B12ac365407B5c5d788941eAEBcFC18A1E";
+const BURN_POT = "0xD3049f1ef0569D3c9Bf9c44f114a76Bf7CFD404f";
+const BUY = `https://ponsfamily.com/launchpad/${TOKEN}`;
+const EXPLORER = "https://robinhoodchain.blockscout.com";
 
 export const metadata: Metadata = {
   title: "Token",
-  description: "The Purser token is not live yet. Details will be published on this page first.",
+  description: "$PURSER is live. The contract address, where to buy it, and how part of the trading fees buys it back and burns it.",
 };
 
 export default function TokenPage() {
   return (
     <div className="container">
-      <section className="soon" id="soon">
+      <section className="soon" id="token">
         <span className="eyebrow">The Purser token</span>
         <h1 className="soon__word">
-          <span className="serif">Soon.</span>
+          <span className="serif">$PURSER is live.</span>
         </h1>
         <p className="lead">
-          The token is not live yet. When it is, the contract address and the details are published on this page first.
+          This page is the place to check the contract address. Part of the trading fees buys $PURSER back and burns it,
+          so the supply only goes down.
         </p>
+        <div style={{ display: "flex", justifyContent: "center", margin: "8px 0 20px" }}>
+          <CopyAddress address={TOKEN} />
+        </div>
         <div className="row" style={{ justifyContent: "center" }}>
-          <a href={site.x} target="_blank" rel="noreferrer" className="btn btn--primary">
-            <IconXLogo size={14} />
-            Follow for the date
+          <a href={BUY} target="_blank" rel="noreferrer" className="btn btn--primary">
+            Buy on ponsfamily.com
           </a>
-          <Link href="/how" className="btn btn--secondary">
-            See how Purser works
-          </Link>
+          <a href={site.x} target="_blank" rel="noreferrer" className="btn btn--secondary">
+            <IconXLogo size={14} />
+            Follow @PurserAgents
+          </a>
         </div>
       </section>
 
       <div className="cells cells--3" style={{ marginBottom: "var(--section-y)" }}>
         <div className="cell">
-          <IconClock size={18} />
-          <h2 className="h4">Status</h2>
-          <p className="small muted">Not live. There is no Purser token to buy today.</p>
-        </div>
-        <div className="cell">
           <IconFile size={18} />
           <h2 className="h4">Contract address</h2>
-          <p className="small muted">Published here first, at launch. This page is the place to check it.</p>
+          <p className="small muted" style={{ wordBreak: "break-all" }}>
+            <a className="link" href={`${EXPLORER}/token/${TOKEN}`} target="_blank" rel="noreferrer">
+              {TOKEN}
+            </a>
+          </p>
         </div>
         <div className="cell">
           <IconArrowRight size={18} />
-          <h2 className="h4">Until then</h2>
+          <h2 className="h4">Buy back and burn</h2>
+          <p className="small muted" style={{ wordBreak: "break-all" }}>
+            A contract with no owner and no withdraw function buys $PURSER with its share of the fees and burns it, at
+            most every 30 minutes. Anyone can check it:{" "}
+            <a className="link" href={`${EXPLORER}/address/${BURN_POT}`} target="_blank" rel="noreferrer">
+              {BURN_POT}
+            </a>
+          </p>
+        </div>
+        <div className="cell">
+          <IconArrowRight size={18} />
+          <h2 className="h4">The product comes first</h2>
           <p className="small muted">
-            The product comes first.{" "}
+            Purser is open source.{" "}
             <Link href="/changelog" className="link">
               Follow the changelog
             </Link>{" "}
-            to see what ships.
+            to see what ships. Holding the token is at your own risk.
           </p>
         </div>
       </div>
