@@ -16,7 +16,7 @@ try {
   console.error(`[token-keeper] not started: ${(err as Error).message}`);
 }
 const server = serve({ fetch: app.fetch, port: cfg.port }, (info) => {
-  console.log(`Purser engine on http://localhost:${info.port} (chain ${cfg.chainId}, ${cfg.deployment ? cfg.deployment.mode : "no deployment"}, broadcast ${engine.ctx.chain.broadcast ? "local only" : "off"})`);
+  console.log(`Purser engine on http://localhost:${info.port} (chain ${cfg.chainId}, ${cfg.deployment ? cfg.deployment.mode : "no deployment"}, broadcast ${engine.ctx.chain.live ? "LIVE" : engine.ctx.chain.broadcast ? "local only" : "off"})`);
 });
 const shutdown = () => {
   engine.stop();

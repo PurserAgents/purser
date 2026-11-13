@@ -90,7 +90,7 @@ export function coreRoutes(app: Hono, ctx: Ctx) {
     const dep = ctx.dep;
     const h: Health = {
       ok: block !== null,
-      mode: dep ? (dep.mode === "live" ? "readonly" : dep.mode) : "readonly",
+      mode: dep ? (dep.mode === "live" ? (ctx.chain.live ? "live" : "readonly") : dep.mode) : "readonly",
       chainId: ctx.cfg.chainId,
       block,
       broadcast: ctx.chain.broadcast,

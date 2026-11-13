@@ -71,8 +71,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     rpcUrls: [rpc, ...fallbacks],
     chainId: Number(env.PURSER_CHAIN_ID ?? ROBINHOOD_CHAIN_ID),
     dbPath: env.PURSER_DB ?? resolve(dataDir, "purser.sqlite"),
-    deployment: readJson<Deployment>(env.PURSER_DEPLOYMENT ?? resolve(dataDir, "deployment.json")),
-    keys: readJson<EngineKeys>(env.PURSER_KEYS ?? resolve(dataDir, "keys.json")),
+    // On a host the deployment and the keys can come as JSON in a variable (never logged); else from files.
+    deployment: env.PURSER_DEPLOYMENT_JSON ? (JSON.parse(env.PURSER_DEPLOYMENT_JSON) as Deployment) : readJson<Deployment>(env.PURSER_DEPLOYMENT ?? resolve(dataDir, "deployment.json")),
+    keys: env.PURSER_KEYS_JSON ? (JSON.parse(env.PURSER_KEYS_JSON) as EngineKeys) : readJson<EngineKeys>(env.PURSER_KEYS ?? resolve(dataDir, "keys.json")),
     testMode: env.PURSER_TEST_MODE === "1",
     indexIntervalMs: Number(env.PURSER_INDEX_INTERVAL_MS ?? 2000),
     schedulerIntervalMs: Number(env.PURSER_SCHEDULER_INTERVAL_MS ?? 15000),

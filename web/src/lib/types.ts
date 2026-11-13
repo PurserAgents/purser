@@ -620,7 +620,7 @@ export interface ApiError {
 
 export interface Health {
   ok: boolean;
-  mode: "local" | "fork" | "readonly";
+  mode: "local" | "fork" | "readonly" | "live";
   chainId: number;
   block: string | null;
   broadcast: boolean;

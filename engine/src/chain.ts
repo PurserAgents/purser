@@ -31,7 +31,7 @@ export type Chain = ReturnType<typeof makeChain>;
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
-/** True only when every configured RPC is a local node (anvil). This build never broadcasts anywhere else. */
+/** True only when every configured RPC is a local node (anvil). Live sending needs PURSER_LIVE=on (see makeChain). */
 export function isLocalRpc(urls: string[]): boolean {
   return urls.length > 0 && urls.every((u) => {
     try {
@@ -51,7 +51,14 @@ export function makeChain(cfg: Config) {
   });
   const transport = cfg.rpcUrls.length > 1 ? fallback(cfg.rpcUrls.map((u) => http(u, { retryCount: 2 }))) : http(cfg.rpcUrls[0], { retryCount: 2 });
   const pub = createPublicClient({ chain, transport }) as PublicClient;
-  const broadcast = isLocalRpc(cfg.rpcUrls) && process.env.PURSER_BROADCAST !== "0" && !!cfg.keys;
+  const local = isLocalRpc(cfg.rpcUrls);
+  // Live: only with an explicit switch, on Robinhood Chain, with a live deployment and keys. PURSER_LIVE=off rolls it back.
+  const live = !local && process.env.PURSER_LIVE === "on" && cfg.chainId === 4663 && cfg.deployment?.mode === "live" && !!cfg.keys;
+  const broadcast = (local && process.env.PURSER_BROADCAST !== "0" && !!cfg.keys) || live;
+  // A hard cap on what each engine key may spend on gas per UTC day, so nobody can drain the keys by flooding the API.
+  const capWei = BigInt(process.env.PURSER_GAS_DAY_WEI ?? "3000000000000000"); // 0.003 ETH per key per day
+  const spent = new Map<string, { day: string; wei: bigint }>();
+  const pollingInterval = local ? 50 : 1000;
 
   const accounts = {
     relayer: cfg.keys ? privateKeyToAccount(cfg.keys.relayer) : null,
@@ -79,6 +86,12 @@ export function makeChain(cfg: Config) {
     tx: { to: Address; data?: Hex; value?: bigint; gas?: bigint },
   ): Promise<TransactionReceipt> {
     if (!broadcast) throw new Error("broadcast disabled: this engine only sends transactions to a local node");
+    if (live) {
+      const day = new Date().toISOString().slice(0, 10);
+      const s = spent.get(account.address);
+      const used = s && s.day === day ? s.wei : 0n;
+      if (used >= capWei) throw new Error("the engine's gas budget for today is used up; it resets at 00:00 UTC");
+    }
     const prev = queues.get(account.address) ?? Promise.resolve();
     const run = prev.catch(() => undefined).then(async () => {
       const hash = await wallet(account).sendTransaction({
@@ -89,13 +102,20 @@ export function makeChain(cfg: Config) {
         value: tx.value ?? 0n,
         gas: tx.gas,
       });
-      return pub.waitForTransactionReceipt({ hash, pollingInterval: 50 });
+      const r = await pub.waitForTransactionReceipt({ hash, pollingInterval });
+      if (live) {
+        const day = new Date().toISOString().slice(0, 10);
+        const prevSpent = spent.get(account.address);
+        const base = prevSpent && prevSpent.day === day ? prevSpent.wei : 0n;
+        spent.set(account.address, { day, wei: base + r.gasUsed * r.effectiveGasPrice });
+      }
+      return r;
     });
     queues.set(account.address, run);
     return run as Promise<TransactionReceipt>;
   }
 
-  return { chain, pub, broadcast, accounts, send, wallet };
+  return { chain, pub, broadcast, live, accounts, send, wallet };
 }
 
 /**
