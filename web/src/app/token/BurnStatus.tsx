@@ -14,6 +14,7 @@ type State = {
   ready: boolean;
   supply: number;
   waitingEth: number;
+  heldTokens: number;
   dead: number;
 };
 
@@ -35,10 +36,15 @@ function fmt(n: number, digits = 0): string {
   return n.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
+/** The pot's MIN_BURN: below it, a burn waits for more fees (at most a day). */
+const MIN_BURN_ETH = 0.001;
+
 function countdown(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
-  const m = Math.floor(s / 60);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
   const r = s % 60;
+  if (h > 0) return `${h} h ${String(m).padStart(2, "0")} min`;
   return `${m}:${String(r).padStart(2, "0")}`;
 }
 
@@ -69,6 +75,7 @@ export function BurnStatus({ pot, token }: { pot: string; token: string }) {
           waitingEth: units(word(preview, 0)),
           nextAt: Number(word(preview, 1)),
           ready: word(preview, 2) === 1n,
+          heldTokens: units(word(preview, 3)),
           supply: units(word(supply, 0)),
           dead: units(word(dead, 0)),
         });
@@ -88,11 +95,17 @@ export function BurnStatus({ pot, token }: { pot: string; token: string }) {
   }, [pot, token]);
 
   const left = st && st.nextAt > 0 ? st.nextAt - now : null;
+  // a small amount waits until fees reach MIN_BURN, or a day at most: say that, not a day-long countdown
+  const filling = !!st && !st.ready && st.heldTokens === 0 && st.waitingEth > 0 && st.waitingEth < MIN_BURN_ETH && left !== null && left > 30 * 60;
   let next = "Reading the chain";
+  let note = "At most every 30 minutes";
   if (st) {
     if (st.ready || (left !== null && left <= 0)) next = "Any minute now";
+    else if (filling) next = `Once ${fmt(MIN_BURN_ETH, 3)} ETH is in`;
     else if (left !== null) next = `in ${countdown(left)}`;
     else next = "When fees arrive";
+    if (filling) note = `${fmt(st.waitingEth, 4)} ETH from fees so far. It burns as soon as it gets there, and within a day at the latest`;
+    else if (st.waitingEth > 0) note = `At most every 30 minutes, about ${fmt(st.waitingEth, 4)} ETH ready`;
   }
   const burnedAll = st ? st.tokens + st.dead : 0;
   const burnedPct = (burnedAll / 1_000_000_000) * 100;
@@ -110,7 +123,7 @@ export function BurnStatus({ pot, token }: { pot: string; token: string }) {
           <span className="eyebrow">Next burn</span>
           <p className="h3" style={{ margin: "8px 0 0" }}>{next}</p>
           <p className="small muted" style={{ marginTop: 6 }}>
-            At most every 30 minutes{st && st.waitingEth > 0 ? `, about ${fmt(st.waitingEth, 4)} ETH ready` : ""}
+            {note}
           </p>
         </div>
         <div className="cell">
