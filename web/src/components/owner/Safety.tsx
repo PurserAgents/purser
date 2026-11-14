@@ -86,19 +86,20 @@ function Body() {
             <div className="rows">
               {mine.slice(0, 40).map((v) => {
                 const blocked = v.decision === "block";
+                const held = !blocked && v.reasons.some((r) => r.code === "shield_hold");
                 const reasons = v.reasons.filter((r) => r.severity !== "info");
                 const trigger = plainTrigger(v.trigger);
                 return (
                   <details className="rowi" key={v.id} style={{ display: "block" }}>
                     <summary style={{ display: "grid", gridTemplateColumns: "auto minmax(0,1fr) auto", gap: 16, alignItems: "center", cursor: "pointer", listStyle: "none" }}>
-                      <span className={"rowi__icon " + (blocked ? "rowi__icon--stop" : "rowi__icon--ok")}>{blocked ? <IconShieldX size={15} /> : <IconCheck size={15} />}</span>
+                      <span className={"rowi__icon " + (blocked ? "rowi__icon--stop" : held ? "rowi__icon--wait" : "rowi__icon--ok")}>{blocked || held ? <IconShieldX size={15} /> : <IconCheck size={15} />}</span>
                       <span className="rowi__main">
-                        <span className="rowi__title">{blocked ? (reasons.find((r) => r.severity === "block")?.title ?? v.summary) : v.summary}</span>
+                        <span className="rowi__title">{blocked ? (reasons.find((r) => r.severity === "block")?.title ?? v.summary) : held ? "Held by Purser Shield, waiting for you" : v.summary}</span>
                         <span className="rowi__meta">
                           {owner.names[v.safe.toLowerCase()]}, {formatTime(v.createdAt)} UTC
                         </span>
                       </span>
-                      <span className={"badge " + (blocked ? "badge--stop" : "badge--ok")}>{blocked ? "Blocked" : "Allowed"}</span>
+                      <span className={"badge " + (blocked ? "badge--stop" : held ? "badge--wait" : "badge--ok")}>{blocked ? "Blocked" : held ? "Held" : "Allowed"}</span>
                     </summary>
                     <div className="stack" style={{ gap: 10, marginTop: 14, paddingLeft: 48 }}>
                       <p className="small">{v.summary}</p>
@@ -246,7 +247,7 @@ function Held({ item, name, reload }: { item: AccountShield["held"][number] & { 
   const decide = (what: "release" | "reject") =>
     action.run(async () => {
       await withOwner(owner.signer, (token) => api(`/v1/intents/${item.id}/${what}`, { method: "POST", token, body: {} }));
-      reload();
+      setTimeout(reload, 2500); // leave the outcome on screen for a moment before the card goes
       return what === "release" ? "Released and sent." : "Rejected. Nothing was sent.";
     }, "Sign in with your wallet...");
   return (

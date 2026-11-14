@@ -229,7 +229,12 @@ export function scanInjection(text: string | null | undefined, payee?: string): 
         const pm = re.exec(plain);
         const at = pm ? pm.index : 0;
         const from = Math.max(plain.lastIndexOf(". ", at) + 2, at - 60, 0);
-        out.excerpt = plain.slice(from, at + (pm?.[0].length ?? 0) + 60).trim();
+        // end the quote at the end of the sentence, or at a whole word with an ellipsis
+        const end = at + (pm?.[0].length ?? 0);
+        const stop = plain.slice(end, end + 120).search(/[.!?](\s|$)/);
+        let quote = stop >= 0 ? plain.slice(from, end + stop + 1) : plain.slice(from, end + 60);
+        if (stop < 0 && end + 60 < plain.length) quote = quote.replace(/\s+\S*$/, "") + "...";
+        out.excerpt = quote.trim();
       }
     }
   }
@@ -402,10 +407,13 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
   const blocking = reasons.filter((r) => r.severity === "block");
   const decision = blocking.length ? "block" : "allow";
   const passed = 9 - new Set(reasons.filter((r) => r.severity !== "info").map((r) => r.code)).size;
+  const lowerFirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
   const summary =
     decision === "block"
-      ? `Blocked: ${blocking[0].title.toLowerCase()}${blocking.length > 1 ? ` (and ${blocking.length - 1} more)` : ""}. Nothing was sent.`
-      : `Allowed: the simulation ran clean and ${Math.max(passed, 1)} of 9 checks found nothing${reasons.some((r) => r.severity === "warn") ? "; see the warnings" : ""}.`;
+      ? `Blocked: ${lowerFirst(blocking[0].title)}${blocking.length > 1 ? ` (and ${blocking.length - 1} more)` : ""}. Nothing was sent.`
+      : shield.hold
+        ? "Held for the owner: flagged by Purser Shield. Nothing is sent unless the owner releases it."
+        : `Allowed: the simulation ran clean and ${Math.max(passed, 1)} of 9 checks found nothing${reasons.some((r) => r.severity === "warn") ? "; see the warnings" : ""}.`;
 
   const verdict: Verdict = {
     id: id("vrd"),

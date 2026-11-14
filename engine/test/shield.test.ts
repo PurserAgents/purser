@@ -53,6 +53,7 @@ describe("Purser Shield: one account attacked, every account protected (local)",
     const r = second.verdict.reasons.find((x) => x.code === "shield");
     assert.ok(r, "stopped by the Shield");
     assert.match(r!.detail, /planted in hidden text/);
+    assert.equal(second.verdict.summary, "Blocked: flagged by Purser Shield. Nothing was sent.");
     assert.equal(second.intent.status, "blocked");
     assert.equal(await usdgBalance(w, attacker), 0n, "nothing reached the attacker");
 
@@ -110,6 +111,7 @@ describe("Purser Shield: one account attacked, every account protected (local)",
     assert.equal(held.intent.status, "held");
     assert.equal(held.verdict.decision, "allow");
     assert.ok(held.verdict.reasons.some((r) => r.code === "shield_hold"));
+    assert.match(held.verdict.summary, /^Held for the owner: flagged by Purser Shield\./);
     assert.equal(await usdgBalance(w, attacker), 0n, "nothing is sent while it waits");
     const view = (await e.get(`/v1/accounts/${b}/shield`)).body;
     assert.deepEqual(view.held.map((h: any) => h.id), [held.intent.id]);
