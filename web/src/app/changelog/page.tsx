@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { IconCheck, IconClock } from "@/components/Icons";
 import { PageHead } from "@/components/ui";
 import { changelog, upcoming } from "@/lib/changelog";
@@ -46,13 +47,20 @@ export default function ChangelogPage() {
             </div>
             <div className="log__body">
               <h2 className="h3">Being built now</h2>
-              <ul className="cells cells--2">
+              <ul className="cells cells--3">
                 {upcoming.map((item) => (
                   <li className="cell cell--pad-sm small" key={item}>
                     {item}
                   </li>
                 ))}
               </ul>
+              <p className="small muted" style={{ marginTop: 12 }}>
+                The whole plan is on the{" "}
+                <Link href="/roadmap" className="link">
+                  roadmap
+                </Link>
+                .
+              </p>
             </div>
           </article>
         </div>

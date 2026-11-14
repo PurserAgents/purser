@@ -9,6 +9,29 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    date: "2026-11-14",
+    version: "0.5.0",
+    title: "A fresh firewall check on every recurring payment",
+    summary: "Subscriptions and streams no longer rely on the check made when they were set up.",
+    items: [
+      "Every subscription charge and stream payout goes through the rules and a full firewall check before it is paid.",
+      "With the firewall on, the contract refuses any recurring payout the firewall did not sign, each signature good for that one payout only.",
+      "A payee that turns bad halfway through a subscription is not paid again.",
+    ],
+  },
+  {
+    date: "2026-11-13",
+    version: "0.4.0",
+    title: "Live on Robinhood Chain",
+    summary: "The contracts are deployed, the engine runs live and anyone can open an agent account.",
+    items: [
+      "PurserModule, PurserFactory, PurserRecurring, PurserEscrow and PurserPasskey deployed and read back from the chain.",
+      "The engine live, with a daily gas cap per engine key.",
+      "$PURSER live, with a contract that buys it back and burns it every 30 minutes, and every burn listed on the token page.",
+      "Every contract, the engine and the site open source.",
+    ],
+  },
+  {
     date: "2026-11-11",
     version: "0.3.0",
     title: "The site, wired to the engine",
@@ -46,7 +69,7 @@ export const changelog: ChangelogEntry[] = [
 ];
 
 export const upcoming: string[] = [
-  "A live test on Robinhood Chain",
-  "The token",
-  "Public source code and hosting",
+  "Purser Shield: every blocked attack shared across all accounts",
+  "Purser in your pocket: Face ID approvals and a live feed",
+  "Models at cost, paid per call from the agent's account",
 ];

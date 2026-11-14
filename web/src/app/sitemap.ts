@@ -9,6 +9,7 @@ const routes = [
   "/templates",
   "/pay",
   "/token",
+  "/roadmap",
   "/economy",
   "/directory",
   "/leaderboard",
