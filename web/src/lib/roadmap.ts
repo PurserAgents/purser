@@ -16,6 +16,7 @@ export const statusLabel: Record<StageStatus, string> = { live: "Live", next: "N
 
 /** Shipped so far, newest first. Each line is something the live product does today. */
 export const shipped: { date: string; text: string }[] = [
+  { date: "2026-11-14", text: "Purser Shield: every attack one firewall catches protects every account" },
   { date: "2026-11-14", text: "A fresh firewall check on every subscription charge and stream payout" },
   { date: "2026-11-13", text: "Live on chain: accounts, rules, firewall, approvals and receipts" },
   { date: "2026-11-13", text: "$PURSER live, with buy back and burn every 30 minutes" },
@@ -45,18 +46,19 @@ export const stages: Stage[] = [
   {
     n: "02",
     slug: "shield",
-    status: "next",
+    status: "live",
     title: "Purser Shield",
     short: "Shield",
-    summary: "One agent gets attacked, every agent is protected. Each trick the firewall blocks is shared across the whole network in the same second.",
+    summary: "One agent gets attacked, every agent is protected. Each attack a firewall blocks puts the attacker on a list every account checks before it signs, in the same second.",
     items: [
-      { title: "A shared threat list", text: "When the firewall blocks an attack, the attacker side goes on a list every Purser account checks before it signs." },
-      { title: "Only the attacker is shared", text: "Addresses, contracts and fingerprints of injected text. Never balances, owners or what your agent paid for." },
-      { title: "Protected before you are targeted", text: "A drainer that hit one agent at 09:00 is blocked for every other agent at 09:00." },
-      { title: "Your call per account", text: "Block on a shared signal, or let it warn and wait for your approval." },
-      { title: "A public threat feed", text: "What was blocked, when and how many accounts it was aimed at, so anyone can see the network defend itself." },
+      { title: "A shared list", text: "Planted payees, forwarding wallets and the code behind them, hostile spenders and a fingerprint of each injected sentence go on one list." },
+      { title: "Checked before every signature", text: "The payee, every recipient and every spender of a payment are checked against the list before the firewall signs." },
+      { title: "Only the attacker is shared", text: "Addresses and one-way fingerprints. Never balances, owners, amounts, the text the agent read or which accounts were attacked." },
+      { title: "Your call per account", text: "Block, the default, or warn: the payment is held, nothing moves, and you release or reject it." },
+      { title: "Schedules stop at once", text: "A flagged payee is never paid again by a subscription or stream, and its owner is told straight away." },
+      { title: "A public list", text: "What is on the list, how many accounts each attack was aimed at and what the Shield stopped, at /shield." },
     ],
-    why: "Every wallet today fights alone. The more agents use Purser, the safer each one gets.",
+    why: "Every wallet today fights alone. On Purser, the more agents there are, the safer each one gets.",
   },
   {
     n: "03",

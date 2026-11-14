@@ -15,3 +15,4 @@ import "./accounting.ts";
 import "./webhooks.ts";
 import "./network.ts";
 import "./alerts.ts";
+import "./shield.ts";

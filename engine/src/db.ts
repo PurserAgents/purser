@@ -234,6 +234,13 @@ CREATE TABLE IF NOT EXISTS model_calls (
 
 CREATE TABLE IF NOT EXISTS account_sets (safe TEXT NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL, on_flag INTEGER NOT NULL, PRIMARY KEY (safe, kind, value));
 
+CREATE TABLE IF NOT EXISTS shield_threats (address TEXT PRIMARY KEY, kind TEXT NOT NULL, hits INTEGER NOT NULL, first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL, first_verdict TEXT, active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS shield_prints (print TEXT PRIMARY KEY, why TEXT NOT NULL, hits INTEGER NOT NULL, first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL, first_verdict TEXT, active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS shield_hits (item TEXT NOT NULL, safe TEXT NOT NULL, verdict_id TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS shield_hits_item ON shield_hits (item);
+CREATE TABLE IF NOT EXISTS shield_blocks (verdict_id TEXT NOT NULL, item TEXT NOT NULL, safe TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY (verdict_id, item));
+CREATE TABLE IF NOT EXISTS shield_settings (safe TEXT PRIMARY KEY, mode TEXT NOT NULL);
+
 CREATE TABLE IF NOT EXISTS seen_logs (uniq TEXT PRIMARY KEY);
 
 CREATE TABLE IF NOT EXISTS owner_sessions (token TEXT PRIMARY KEY, address TEXT NOT NULL, expires INTEGER NOT NULL);

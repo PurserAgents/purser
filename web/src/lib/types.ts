@@ -117,6 +117,7 @@ export type IntentStatus =
   | "blocked" // the firewall or the rules refused; never sent
   | "needs_cosign"
   | "queued" // waiting for the owner's approval
+  | "held" // Purser Shield matched and the account is set to warn: waits for the owner to release or reject
   | "approved"
   | "rejected"
   | "submitted"
@@ -246,7 +247,7 @@ export interface WatchdogBaseline {
 export interface WatchdogEvent {
   id: string;
   safe: Address;
-  kind: "spike" | "new_counterparty" | "loop" | "burst" | "drain";
+  kind: "spike" | "new_counterparty" | "loop" | "burst" | "drain" | "shield";
   severity: "warn" | "critical";
   title: string;
   detail: string;
@@ -716,4 +717,55 @@ export interface AuditPage {
   items: AuditEntry[];
   signer: Address;
   next: string | null;
+}
+
+// ---------------------------------------------------------------------------------------------------- Purser Shield
+
+/** What a Shield match does on an account: refuse the payment, or hold it for the owner. */
+export type ShieldMode = "block" | "warn";
+
+/** An attacker address on the shared list. Only the attacker's side: never who was attacked or what they hold. */
+export interface ShieldThreat {
+  address: Address;
+  kind: "planted_payee" | "forwarding_wallet" | "forwarding_code" | "spender";
+  what: string;
+  attacks: number;
+  /** how many accounts it was aimed at, never which */
+  accounts: number;
+  /** payments to it the Shield stopped on other accounts */
+  stoppedElsewhere: number;
+  firstSeen: number;
+  lastSeen: number;
+}
+
+/** A one-way fingerprint of a sentence of injected instructions. The sentence itself is not shared. */
+export interface ShieldPrint {
+  print: string;
+  why: string;
+  attacks: number;
+  accounts: number;
+  stoppedElsewhere: number;
+  firstSeen: number;
+  lastSeen: number;
+}
+
+export interface ShieldStats {
+  addresses: number;
+  prints: number;
+  attacksCaught: number;
+  stoppedByShield: number;
+  accountsProtected: number;
+  lastFlaggedAt: number | null;
+}
+
+export interface ShieldView {
+  stats: ShieldStats;
+  threats: ShieldThreat[];
+  prints: ShieldPrint[];
+}
+
+export interface AccountShield {
+  safe: Address;
+  mode: ShieldMode;
+  held: { id: string; summary: string; to: Address; createdAt: number; why: string | null }[];
 }

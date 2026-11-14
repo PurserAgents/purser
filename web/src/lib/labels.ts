@@ -31,6 +31,7 @@ export const statusLabel: Record<IntentStatus, string> = {
   blocked: "Blocked",
   needs_cosign: "Needs co-sign",
   queued: "Needs approval",
+  held: "Held by Shield",
   approved: "Approved",
   rejected: "Rejected",
   submitted: "Sent",

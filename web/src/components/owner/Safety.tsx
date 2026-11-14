@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { api } from "@/lib/client";
-import { formatTime, usd } from "@/lib/format";
+import { formatTime, shortAddress, usd } from "@/lib/format";
 import { withOwner } from "@/lib/owner";
-import type { Page, Verdict, WatchdogView } from "@/lib/types";
+import type { AccountShield, Page, Verdict, WatchdogView } from "@/lib/types";
 import { IconAlert, IconCheck, IconEye, IconShield, IconShieldX, IconSnow } from "../Icons";
 import { useEngine } from "../Live";
 import { Card, EmptyState, Loading } from "../ui";
@@ -14,7 +14,7 @@ import { useMany } from "./hooks";
 
 export function Safety() {
   return (
-    <OwnerFrame title="What the firewall and the watchdog saw." lead="Every payment is simulated and checked before it is signed. The watchdog compares spending with each agent's normal pattern and can freeze it.">
+    <OwnerFrame title="What the firewall, the Shield and the watchdog saw." lead="Every payment is simulated and checked before it is signed, against your rules and against every attack other Purser accounts caught. The watchdog compares spending with each agent's normal pattern and can freeze it.">
       <Body />
     </OwnerFrame>
   );
@@ -31,6 +31,8 @@ function Body() {
   const [filter, setFilter] = useState<"block" | "allow" | "all">("block");
   const verdicts = useEngine<Page<Verdict>>(`/v1/verdicts?limit=200${filter === "all" ? "" : `&decision=${filter}`}`, { refreshOn: ["verdict"] });
   const watch = useMany<WatchdogView>(owner.accounts.map((a) => a.safe), (s) => `/v1/accounts/${s}/watchdog`, ["watchdog", "account"]);
+  const shield = useMany<AccountShield>(owner.accounts.map((a) => a.safe), (s) => `/v1/accounts/${s}/shield`, ["intent", "verdict"]);
+  const held = Object.values(shield.data).flatMap((v) => v.held.map((h) => ({ ...h, safe: v.safe })));
   const mine = (verdicts.data?.items ?? []).filter((v) => owner.names[v.safe.toLowerCase()]);
   const events = Object.values(watch.data)
     .flatMap((w) => w.events)
@@ -127,6 +129,22 @@ function Body() {
           )}
         </Card>
         <div className="dash">
+          <Card title="Purser Shield" action={<a href="/shield" className="small link">The shared list</a>} flush>
+            <div className="rows">
+              {owner.accounts.map((a) => (
+                <ShieldMode key={a.safe} safe={a.safe} name={a.name} view={shield.data[a.safe]} reload={shield.reload} />
+              ))}
+            </div>
+          </Card>
+          {held.length ? (
+            <Card title="Held by Purser Shield" action={<span className="badge badge--wait">{held.length} to decide</span>} flush>
+              <div className="rows">
+                {held.map((h) => (
+                  <Held key={h.id} item={h} name={owner.names[h.safe.toLowerCase()]} reload={shield.reload} />
+                ))}
+              </div>
+            </Card>
+          ) : null}
           <Card title="Watchdog" flush>
             <div className="rows">
               {owner.accounts.map((a) => (
@@ -186,6 +204,72 @@ function AutoFreeze({ safe, name, view, reload }: { safe: string; name: string; 
         <input type="checkbox" aria-label={`Auto-freeze ${name}`} checked={on} disabled={!view || action.busy} onChange={(e) => void toggle(e.target.checked)} />
         <span className="small">Auto-freeze</span>
       </label>
+    </div>
+  );
+}
+
+function ShieldMode({ safe, name, view, reload }: { safe: string; name: string; view: AccountShield | undefined; reload(): void }) {
+  const owner = useOwner();
+  const action = useAction();
+  const mode = view?.mode ?? "block";
+  const set = (next: "block" | "warn") =>
+    action.run(async () => {
+      await withOwner(owner.signer, (token) => api(`/v1/accounts/${safe}/shield`, { method: "PATCH", token, body: { mode: next } }));
+      reload();
+      return next === "block" ? "Shield matches are blocked." : "Shield matches wait for you.";
+    }, "Sign in with your wallet...");
+  return (
+    <div className="rowi shield-mode">
+      <span className="rowi__icon">
+        <IconShield size={15} />
+      </span>
+      <div className="rowi__main">
+        <span className="rowi__title">{name}</span>
+        <span className="rowi__meta">{mode === "block" ? "Anything on the shared list is refused" : "A match waits for you to release or reject it"}</span>
+        {action.state.kind === "error" ? <ActionStatus state={action.state} /> : null}
+      </div>
+      <div className="segmented" role="group" aria-label={`Purser Shield for ${name}`}>
+        <button type="button" aria-pressed={mode === "block"} disabled={!view || action.busy} onClick={() => mode !== "block" && void set("block")}>
+          Block
+        </button>
+        <button type="button" aria-pressed={mode === "warn"} disabled={!view || action.busy} onClick={() => mode !== "warn" && void set("warn")}>
+          Warn me
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Held({ item, name, reload }: { item: AccountShield["held"][number] & { safe: string }; name: string | undefined; reload(): void }) {
+  const owner = useOwner();
+  const action = useAction();
+  const decide = (what: "release" | "reject") =>
+    action.run(async () => {
+      await withOwner(owner.signer, (token) => api(`/v1/intents/${item.id}/${what}`, { method: "POST", token, body: {} }));
+      reload();
+      return what === "release" ? "Released and sent." : "Rejected. Nothing was sent.";
+    }, "Sign in with your wallet...");
+  return (
+    <div className="rowi" style={{ alignItems: "flex-start" }}>
+      <span className="rowi__icon rowi__icon--wait">
+        <IconShieldX size={15} />
+      </span>
+      <div className="rowi__main">
+        <span className="rowi__title">{item.summary}</span>
+        <span className="rowi__meta">
+          {name ?? shortAddress(item.safe)}, to {shortAddress(item.to)}, held {formatTime(item.createdAt)} UTC
+        </span>
+        {item.why ? <span className="rowi__meta">{item.why}</span> : null}
+        <ActionStatus state={action.state} />
+        <div className="row" style={{ marginTop: 8 }}>
+          <button type="button" className="btn btn--secondary btn--sm" disabled={action.busy} onClick={() => void decide("reject")}>
+            Reject
+          </button>
+          <button type="button" className="btn btn--primary btn--sm" disabled={action.busy} onClick={() => void decide("release")}>
+            Release and pay
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

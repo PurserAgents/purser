@@ -6,6 +6,7 @@ const routes = [
   "",
   "/how",
   "/firewall",
+  "/shield",
   "/templates",
   "/pay",
   "/token",

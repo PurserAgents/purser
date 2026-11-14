@@ -236,6 +236,17 @@ export const docs: DocGroup[] = [
           "Unknown contracts, payees with delegated code, burn addresses and token contracts.",
           "Approvals left to a spender other than the target, and takeover calls.",
           "Planted instructions or hidden text in what the agent read before it paid.",
+          "Anything on the Purser Shield list: the payee, every recipient, every spender and every sentence the agent read.",
+        ],
+      },
+      {
+        id: "shield",
+        title: "Purser Shield",
+        body: [
+          "When a firewall blocks an attack, the attacker's side goes on one list that every account's firewall checks before it signs: a payee planted in hidden text, a wallet that forwards everything through delegated code and the contract it hands control to, a spender an approval would hand the account to, and a one-way fingerprint of each injected sentence, with addresses and amounts masked so the same sentence matches with another address.",
+          "Only the attacker is shared. The list never holds balances, owners, amounts, the text the agent read or which accounts were attacked; it counts accounts as a number. Purser accounts, addresses on any owner's list and payees that several accounts already paid are never flagged, so planting a known service's address in a page cannot poison the list.",
+          "Each account picks what a match does: `block`, the default, refuses the payment; `warn` holds it with nothing sent until the owner releases or rejects it (`POST /v1/intents/:id/release` or `/reject`). An address on the owner's own list only warns. Scheduled payouts never wait: a flagged payee is not paid again by a subscription or a stream, and accounts paying it get a watchdog alert that freezes them where auto-freeze is on.",
+          "The list is public: `GET /v1/shield` for the list and its totals, `GET /v1/shield/address/:address` to check one address, and the page at /shield. The mode is `GET` and `PATCH /v1/accounts/:safe/shield` with `{ mode: \"block\" | \"warn\" }`.",
         ],
       },
       {

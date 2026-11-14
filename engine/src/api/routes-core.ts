@@ -23,7 +23,7 @@ import type { Ctx } from "../ctx.ts";
 import { requireDep } from "../ctx.ts";
 import { getVerdict, listVerdicts } from "../firewall.ts";
 import { indexOnce, ingestReceipt } from "../indexer.ts";
-import { getIntent, listIntents, resumeIntent, submitIntent } from "../intents.ts";
+import { getIntent, listIntents, rejectHeld, releaseHeld, resumeIntent, submitIntent } from "../intents.ts";
 import { createApiKey, issueOwnerSession, listApiKeys, newSignInNonce, revokeApiKey, signInMessage, verifySignIn } from "../keys.ts";
 import { getReceipt, listReceipts } from "../receipts.ts";
 import { setupFromTemplate, TEMPLATES, getTemplate } from "../templates.ts";
@@ -377,6 +377,17 @@ export function coreRoutes(app: Hono, ctx: Ctx) {
     return send(c, await decideWithPasskey(ctx, param(c, "id"), b.decision === "approve", b.assertion));
   });
   app.post("/v1/approvals/:id/resume", async (c) => send(c, await resumeIntent(ctx, param(c, "id"))));
+  // Purser Shield, warn mode: the owner releases or rejects a held payment
+  app.post("/v1/intents/:id/release", async (c) => {
+    const it = getIntent(ctx, param(c, "id")) ?? fail(404, "not_found", "No such intent.");
+    await safeOwner(ctx, c, it.safe);
+    return send(c, await releaseHeld(ctx, it.id));
+  });
+  app.post("/v1/intents/:id/reject", async (c) => {
+    const it = getIntent(ctx, param(c, "id")) ?? fail(404, "not_found", "No such intent.");
+    await safeOwner(ctx, c, it.safe);
+    return send(c, { intent: await rejectHeld(ctx, it.id) });
+  });
 
   // ------------------------------------------------------------------------------------------------ firewall verdicts
   app.get("/v1/verdicts", (c) => send(c, { items: listVerdicts(ctx, { decision: c.req.query("decision"), limit: qInt(c, "limit") }), next: null }));

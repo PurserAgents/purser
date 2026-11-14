@@ -10,6 +10,21 @@ export interface ChangelogEntry {
 export const changelog: ChangelogEntry[] = [
   {
     date: "2026-11-14",
+    version: "0.6.0",
+    title: "Purser Shield",
+    summary: "One agent attacked, every agent protected. What one account's firewall catches, every account's firewall refuses.",
+    items: [
+      "When the firewall blocks an attack, the attacker's side goes on one shared list: planted payees, forwarding wallets and the code behind them, hostile spenders, and a one-way fingerprint of each injected sentence with addresses and amounts masked.",
+      "Before it signs, every account's firewall checks the payee, every recipient and every spender of a payment against the list.",
+      "Only the attacker is shared. Never balances, owners, amounts, the text the agent read or which accounts were attacked.",
+      "Per account: block, the default, or warn, where the payment is held until the owner releases or rejects it in the dashboard.",
+      "A flagged payee is never paid again by a subscription or stream, and the owner gets a watchdog alert at once.",
+      "Purser accounts, addresses on an owner's list and payees several accounts already paid are never flagged, so a planted page cannot poison the list.",
+      "The public list at /shield, with a lookup for any address.",
+    ],
+  },
+  {
+    date: "2026-11-14",
     version: "0.5.0",
     title: "A fresh firewall check on every recurring payment",
     summary: "Subscriptions and streams no longer rely on the check made when they were set up.",
@@ -69,7 +84,7 @@ export const changelog: ChangelogEntry[] = [
 ];
 
 export const upcoming: string[] = [
-  "Purser Shield: every blocked attack shared across all accounts",
   "Purser in your pocket: Face ID approvals and a live feed",
   "Models at cost, paid per call from the agent's account",
+  "Agents hire agents: paid on delivery, rated by paid jobs",
 ];

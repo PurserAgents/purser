@@ -190,7 +190,7 @@ export async function submitIntent(ctx: Ctx, input: SubmitInput): Promise<PayRes
   const sigs = packSignatures(agentSig, cosig, fwSig);
   const data = txData(b, sigs);
   const from = ctx.chain.accounts.relayer?.address ?? safe;
-  const { verdict } = await evaluate(ctx, {
+  const { verdict, hold } = await evaluate(ctx, {
     safe,
     kind: b.kind === "treasury" ? "treasury" : b.kind,
     to: d.to,
@@ -211,7 +211,13 @@ export async function submitIntent(ctx: Ctx, input: SubmitInput): Promise<PayRes
     return { intent, verdict, receipt: null };
   }
   if (input.dryRun) {
-    const intent = setIntent(ctx, iid, { status: "ready", verdict_id: verdict.id, error: "dry run: checked, not sent" })!;
+    const intent = setIntent(ctx, iid, { status: "ready", verdict_id: verdict.id, error: hold ? "dry run: Purser Shield would hold it for the owner" : "dry run: checked, not sent" })!;
+    return { intent, verdict, receipt: null };
+  }
+  if (hold) {
+    const intent = setIntent(ctx, iid, { status: "held", verdict_id: verdict.id, sigs, error: "Held by Purser Shield until the owner releases or rejects it." })!;
+    ctx.bus.emit("intent", safe, { ...intent, event: "held" });
+    await ctx.audit.append("shield", "intent.held", safe, { intent: iid, verdict: verdict.id, summary: d.summary });
     return { intent, verdict, receipt: null };
   }
   setIntent(ctx, iid, { verdict_id: verdict.id, sigs });
@@ -311,6 +317,7 @@ export async function resumeIntent(ctx: Ctx, iid: string, cosignature?: Hex): Pr
     trigger: meta.trigger,
     intentId: iid,
     category: row.category,
+    ownerApproved: true,
   });
   if (verdict.decision === "block") {
     const intent = setIntent(ctx, iid, { status: "blocked", verdict_id: verdict.id, error: verdict.summary })!;
@@ -318,6 +325,28 @@ export async function resumeIntent(ctx: Ctx, iid: string, cosignature?: Hex): Pr
   }
   setIntent(ctx, iid, { verdict_id: verdict.id, sigs, status: "approved" });
   return relay(ctx, iid, verdict);
+}
+
+/** The owner releases a payment Purser Shield held (warn mode): it is checked again, then sent. */
+export async function releaseHeld(ctx: Ctx, iid: string): Promise<PayResult> {
+  const row = getIntentRow(ctx, iid);
+  if (!row) return fail(404, "not_found", "No such intent.");
+  const claimed = ctx.db.prepare("UPDATE intents SET status = 'approved', updated_at = ? WHERE id = ? AND status = 'held'").run(now(), iid);
+  if (!claimed.changes) return fail(409, "not_held", "This payment is not waiting on Purser Shield.");
+  await ctx.audit.append(`owner:${row.safe}`, "intent.released", row.safe, { intent: iid });
+  return resumeIntent(ctx, iid);
+}
+
+/** The owner rejects a payment Purser Shield held. Nothing is sent. */
+export async function rejectHeld(ctx: Ctx, iid: string) {
+  const row = getIntentRow(ctx, iid);
+  if (!row) return fail(404, "not_found", "No such intent.");
+  const done = ctx.db.prepare("UPDATE intents SET status = 'rejected', error = ?, updated_at = ? WHERE id = ? AND status = 'held'").run("Rejected by the owner after a Purser Shield match.", now(), iid);
+  if (!done.changes) return fail(409, "not_held", "This payment is not waiting on Purser Shield.");
+  await ctx.audit.append(`owner:${row.safe}`, "intent.rejected", row.safe, { intent: iid });
+  const intent = getIntent(ctx, iid)!;
+  ctx.bus.emit("intent", row.safe, { ...intent, event: "rejected" });
+  return intent;
 }
 
 export function getIntent(ctx: Ctx, iid: string) {

@@ -142,7 +142,8 @@ describe("the launch demo: a hidden instruction to drain the wallet (11.3, local
     assert.ok(drain.reasons.some((x: any) => x.code === "drain"));
     const quiet = steps[5].data;
     const blocks = quiet.reasons.filter((x: any) => x.severity === "block").map((x: any) => x.code);
-    assert.deepEqual(blocks, ["injection"], "inside the budget, only the firewall stops it");
+    assert.deepEqual(blocks, ["injection", "shield"], "inside the budget, only the firewall stops it, and the attacker is already on the Shield list");
+    assert.match(quiet.reasons.find((x: any) => x.code === "shield").detail, /own firewall caught it/);
     assert.equal(steps[6].data.attackerReceived, "0");
     assert.equal(steps[6].data.before, steps[6].data.after);
     const last = await e.get("/v1/demo/firewall");

@@ -6,6 +6,7 @@ import { decodeRevertData, REVERT_WORDS } from "./chain.ts";
 import { requireDep, type Ctx } from "./ctx.ts";
 import type { PolicyResult } from "./policy.ts";
 import { fmt, id, json, lower, now, parseJson, sameAddress, ZERO } from "./util.ts";
+import { protectSchedules, recordShieldStop, recordThreats, sentencePrints, shieldCheck, type ThreatCandidate } from "./shield.ts";
 
 // ---------------------------------------------------------------------------------------------------- simulation
 
@@ -267,11 +268,15 @@ export interface FirewallInput {
    *  amount is not news, so its share of the balance and a contract payee only warn. Everything about the payee is
    *  checked fresh. */
   agreed?: boolean;
+  /** the owner already approved this payment (a queued intent being sent); a Shield match in warn mode lets it go */
+  ownerApproved?: boolean;
 }
 
 export interface FirewallResult {
   verdict: Verdict;
   simulation: RawSimulation;
+  /** Purser Shield matched and the account is set to warn: the payment waits for the owner */
+  hold: boolean;
 }
 
 /** The firewall: simulate, check, explain. Returns an allow or block verdict with plain reasons, stored. */
@@ -334,8 +339,11 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
   // 4. who is on the other side
   const code = await ctx.chain.pub.getCode({ address: input.to }).catch(() => undefined);
   const known = isKnownCounterparty(ctx, input.safe, input.to);
+  let delegate: string | null = null;
+  const threats: ThreatCandidate[] = [];
   if (code && code.startsWith("0xef0100")) {
-    const delegate = lower(`0x${code.slice(8, 48)}`);
+    delegate = lower(`0x${code.slice(8, 48)}`);
+    threats.push({ address: input.to, kind: "forwarding_wallet" }, { address: delegate, kind: "forwarding_code" });
     add("delegated_eoa", "block", "The payee's wallet runs delegated code", `The payee is a wallet that hands control to the contract ${delegate} (EIP-7702). Wallets like this are often set up to forward everything they receive.`);
   } else if (code && code !== "0x" && !known) {
     add("unknown_contract", input.kind === "pay" || input.agreed ? "warn" : "block", "Unknown contract", "The other side is a contract this account has never paid and that is not on the owner's list.");
@@ -349,8 +357,10 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
   for (const ap of sim.approvals) {
     if (!sameAddress(ap.owner, input.safe) || BigInt(ap.amount) === 0n) continue;
     const allowedSpender = setsOf(ctx, input.safe, "allow").some((a) => sameAddress(a, ap.spender)) || sameAddress(ap.spender, input.to);
-    if (!allowedSpender)
+    if (!allowedSpender) {
       add("approval_unknown_spender", "block", "Approval to an unknown spender", `The call would let ${ap.spender} take tokens from the account later.`);
+      threats.push({ address: ap.spender, kind: "spender" });
+    }
   }
 
   // 6. known-bad patterns in call data
@@ -366,6 +376,7 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
   if (inj.strong.length && paysModelProvider) {
     add("injection_in_prompt", "warn", "Instruction-like text in the prompt", `The prompt ${inj.strong[0]}. The payment only goes to the model provider, so it is allowed; the owner may want to look at the request.`);
   } else if (inj.strong.length) {
+    if (inj.addressInText) threats.push({ address: input.to, kind: "planted_payee" });
     add(
       "injection",
       "block",
@@ -373,22 +384,28 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
       `The request that led to this payment ${inj.strong.slice(0, 2).join(" and ")}${inj.addressInText ? ", and the payee address comes from that same text" : ""}.${inj.excerpt ? ` It says: "${inj.excerpt.slice(0, 160)}"` : ""}`,
     );
   } else if (inj.hiding.length && inj.addressInText) {
+    threats.push({ address: input.to, kind: "planted_payee" });
     add("injection", "block", "The payee came from hidden text", `The payee address appears in text that ${inj.hiding[0]}.`);
   } else if (inj.hiding.length) {
     add("hidden_text", "warn", "Hidden text in the request", `The request ${inj.hiding.join(" and ")}.`);
   }
 
-  // 8. owner approval and co-sign are not firewall blocks; say so
+  // 8. Purser Shield: everything this payment touches, checked against what other accounts' firewalls caught
+  const touched = [input.to, ...(delegate ? [delegate] : []), ...sim.assetChanges.filter((c) => sameAddress(c.from, input.safe)).map((c) => c.to), ...sim.approvals.map((a) => a.spender)];
+  const shield = shieldCheck(ctx, { safe: input.safe, addresses: touched, trigger: input.trigger, agreed: input.agreed, ownerApproved: input.ownerApproved });
+  reasons.push(...shield.reasons);
+
+  // 9. owner approval and co-sign are not firewall blocks; say so
   if (input.policy.needsApproval) add("needs_approval", "info", "Needs the owner's approval", "The amount is above the owner's approval threshold, so it waits for the owner.");
   if (input.policy.needsCosign) add("needs_cosign", "info", "Needs a second signature", "The amount is above the co-sign threshold.");
 
   const blocking = reasons.filter((r) => r.severity === "block");
   const decision = blocking.length ? "block" : "allow";
-  const passed = 8 - new Set(reasons.filter((r) => r.severity !== "info").map((r) => r.code)).size;
+  const passed = 9 - new Set(reasons.filter((r) => r.severity !== "info").map((r) => r.code)).size;
   const summary =
     decision === "block"
       ? `Blocked: ${blocking[0].title.toLowerCase()}${blocking.length > 1 ? ` (and ${blocking.length - 1} more)` : ""}. Nothing was sent.`
-      : `Allowed: the simulation ran clean and ${Math.max(passed, 1)} of 8 checks found nothing${reasons.some((r) => r.severity === "warn") ? "; see the warnings" : ""}.`;
+      : `Allowed: the simulation ran clean and ${Math.max(passed, 1)} of 9 checks found nothing${reasons.some((r) => r.severity === "warn") ? "; see the warnings" : ""}.`;
 
   const verdict: Verdict = {
     id: id("vrd"),
@@ -406,7 +423,16 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
     .run(verdict.id, verdict.safe, verdict.intentId, decision, summary, json(reasons), json(sim), verdict.trigger, verdict.createdAt);
   ctx.bus.emit("verdict", verdict.safe, verdict);
   await ctx.audit.append("firewall", `verdict.${decision}`, verdict.safe, { verdict: verdict.id, intent: input.intentId, codes: reasons.map((r) => r.code) });
-  return { verdict, simulation: raw };
+
+  // what this firewall caught goes on the shared list; what the list stopped is counted
+  if (decision === "block") {
+    const prints = inj.strong.length && !paysModelProvider ? sentencePrints(input.trigger).filter((p) => scanInjection(p.sentence).strong.length).map((p) => ({ print: p.print, why: scanInjection(p.sentence).strong[0] })) : [];
+    const fresh = recordThreats(ctx, input.safe, verdict.id, threats, prints, verdict.createdAt);
+    if (fresh.length) await ctx.audit.append("shield", "shield.flagged", verdict.safe, { verdict: verdict.id, addresses: fresh, prints: prints.length });
+    for (const a of fresh) await protectSchedules(ctx, a).catch(() => undefined);
+  }
+  if (shield.matched.length && (decision === "block" || shield.hold)) recordShieldStop(ctx, input.safe, verdict.id, shield.matched, verdict.createdAt);
+  return { verdict, simulation: raw, hold: decision === "allow" && shield.hold };
 }
 
 export function isKnownCounterparty(ctx: Ctx, safe: string, who: string): boolean {

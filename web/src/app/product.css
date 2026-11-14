@@ -1557,3 +1557,32 @@
   .rm-items { grid-column: 1; grid-template-columns: minmax(0, 1fr); }
   .rm-item { padding: var(--s-4); }
 }
+
+/* ---------- Purser Shield ---------- */
+.shield-lookup { display: grid; gap: var(--s-3); }
+.shield-lookup form { flex-wrap: nowrap; }
+.shield-lookup .input { flex: 1; min-width: 0; }
+.shield-answer {
+  display: flex;
+  gap: var(--s-3);
+  align-items: flex-start;
+  padding: var(--s-4) var(--s-5);
+  border-radius: var(--r-md);
+  background: var(--ok-bg);
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  line-height: 1.55;
+}
+.shield-answer svg { flex: none; margin-top: 2px; color: var(--ok); }
+.shield-answer strong { color: var(--text); font-weight: 500; }
+.shield-answer--stop { background: var(--stop-bg); }
+.shield-answer--stop svg { color: var(--stop); }
+.shield-mode .segmented { flex: none; }
+@media (max-width: 640px) {
+  .shield-lookup form { flex-wrap: wrap; }
+  .shield-lookup .btn { width: 100%; justify-content: center; }
+}
+.shield-opt { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: var(--s-3); align-items: start; }
+.shield-opt svg { margin-top: 3px; }
+.shield-pair { background: none; border: 0; gap: var(--s-5); overflow: visible; }
+@media (max-width: 960px) { .shield-pair { grid-template-columns: minmax(0, 1fr); } }

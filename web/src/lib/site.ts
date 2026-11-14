@@ -54,6 +54,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { href: "/how", label: "How it works", text: "Accounts, rules and the path of a payment" },
       { href: "/firewall", label: "Watch an attack get blocked", text: "A hidden instruction meets the firewall" },
+      { href: "/shield", label: "Purser Shield", text: "One agent attacked, every agent protected" },
       { href: "/templates", label: "Rule templates", text: "Ready rules for each kind of agent" },
       { href: "/pay", label: "Pay button", text: "One script tag to get paid" },
       { href: "/token", label: "Token", text: "$PURSER is live" },
@@ -87,6 +88,7 @@ export const footerNav: { title: string; items: NavItem[] }[] = [
     items: [
       { href: "/how", label: "How it works" },
       { href: "/firewall", label: "Watch an attack get blocked" },
+      { href: "/shield", label: "Purser Shield" },
       { href: "/templates", label: "Rule templates" },
       { href: "/pay", label: "Pay button" },
       { href: "/token", label: "Token" },

@@ -19,6 +19,7 @@ import type {
   LeaderboardEntry,
   Page,
   PublicAgent,
+  ShieldView,
   StoreService,
   Template,
 } from "./types";
@@ -109,6 +110,8 @@ const isHealth: Guard<Health> = (v): v is Health => isRecord(v) && typeof v.ok =
 
 const isRun: Guard<FirewallRun> = (v): v is FirewallRun => isRecord(v) && Array.isArray(v.steps);
 
+const isShield: Guard<ShieldView> = (v): v is ShieldView => isRecord(v) && isRecord(v.stats) && Array.isArray(v.threats) && Array.isArray(v.prints);
+
 const hasSafe = (v: unknown) => isRecord(v) && typeof v.safe === "string";
 const hasId = (v: unknown) => isRecord(v) && typeof v.id === "string";
 
@@ -117,6 +120,7 @@ export const getConfig = () => load("/v1/config", isConfig);
 export const getEconomy = (range: "24h" | "30d" = "30d") => load(`/v1/economy?range=${range}`, isEconomy);
 export const getLeaderboard = () => load("/v1/leaderboard?limit=50", isPage<LeaderboardEntry>(hasSafe));
 export const getTemplates = () => load("/v1/templates", isPage<Template>(hasId));
+export const getShield = () => load("/v1/shield", isShield);
 export const getFirewallRun = () => load("/v1/demo/firewall", isRun);
 export const getAccounts = () => load("/v1/accounts", isPage<AccountSummary>(hasSafe));
 export const getServicesOf = (safe: string) => load(`/v1/accounts/${encodeURIComponent(safe)}/services`, isPage<StoreService>(hasId));
