@@ -156,7 +156,9 @@ function Onboard({ notice, desk, onPaired }: { notice: string | null; desk: bool
   return <Pair notice={notice} passkeys={env.passkeys} testMode={!!config?.testMode} config={config} onPaired={onPaired} />;
 }
 
-function Brand({ right }: { right?: ReactNode }) {
+function Brand({ right, back }: { right?: ReactNode; back?: boolean }) {
+  // Opened in the browser (not from the Home Screen): a way back to the site, since there is no site header here.
+  const showBack = back && !right && !isStandalone();
   return (
     <header className="pk-top">
       <span className="pk-brand">
@@ -165,6 +167,14 @@ function Brand({ right }: { right?: ReactNode }) {
         Purser
       </span>
       {right}
+      {showBack && (
+        <Link href="/" className="pk-back" aria-label="Back to purseragents.fun">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+          Back to site
+        </Link>
+      )}
     </header>
   );
 }
@@ -214,7 +224,7 @@ function OnComputer({ onHere }: { onHere(): void }) {
 function Install({ onSkip }: { onSkip(): void }) {
   return (
     <div className="pk-screen pk-screen--center">
-      <Brand />
+      <Brand back />
       <div className="pk-hero">
         <p className="pk-eyebrow">Purser in your pocket</p>
         <h1 className="pk-h1">
@@ -313,7 +323,7 @@ function Pair({ notice, passkeys, testMode, config, onPaired }: { notice: string
 
   return (
     <div className="pk-screen pk-screen--center">
-      <Brand />
+      <Brand back />
       <div className="pk-hero">
         <p className="pk-eyebrow">Purser in your pocket</p>
         <h1 className="pk-h1">

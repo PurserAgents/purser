@@ -219,18 +219,19 @@ for (const [route, ids] of Object.entries(routes)) {
   });
 }
 
-test("the phone app: both pages, the manifest, the service worker and the icons; copy rules; dark mode only there", async () => {
+test("the phone app: both pages, the manifest, the service worker and the icons; copy rules; always light on a phone", async () => {
   for (const route of ["/pocket", "/pocket/statement"]) {
     const { status, body } = await get(route);
     assert.equal(status, 200, route);
     assert.match(body, /class="pocket"/, route + " renders the app shell");
     assert.match(body, /<title>[^<]*Purser[^<]*<\/title>/, "title");
-    assert.match(body, /<meta[^>]*(theme-color[^>]*\(prefers-color-scheme: dark\)|\(prefers-color-scheme: dark\)[^>]*theme-color)/, "theme colour for a dark phone");
+    assert.match(body, /<meta[^>]*name="theme-color"[^>]*content="#f7f7f8"/, "light theme colour");
+    assert.doesNotMatch(body, /theme-color[^>]*prefers-color-scheme: dark/, "no dark theme colour on the phone");
     for (const [pattern, name] of forbidden) assert.doesNotMatch(body, pattern, `${route} contains ${name}`);
     assert.doesNotMatch(textOf(body), forbiddenText, route);
     const css = (await Promise.all([...body.matchAll(/href="(\/_next\/static\/[^"]+\.css)"/g)].map((m) => get(m[1])))).map((r) => r.body).join("\n");
     assert.match(css, /\.pk-screen/, "phone styles loaded");
-    assert.match(css, /prefers-color-scheme:\s*dark/, "the phone app follows the phone's colour setting");
+    assert.doesNotMatch(css, /prefers-color-scheme:\s*dark\)\s*and\s*\(hover:\s*none\)/, "the phone app stays light when the phone is set to dark");
   }
   const manifest = await get("/manifest.webmanifest");
   assert.equal(manifest.status, 200);

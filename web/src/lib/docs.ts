@@ -138,7 +138,7 @@ export const docs: DocGroup[] = [
         bullets: [
           "What the phone can do: see your agents, balances, budgets and rules; get notifications; approve or reject with Face ID; release or reject a payment Purser Shield holds; freeze one agent or all of them; read statements.",
           "What it cannot do: send a payment, change a rule, add a key, unfreeze an agent or open an account.",
-          "On the phone: a live feed, a receipt behind every line, the count of payments waiting for you on the app icon, a lock for the app with Face ID, dark mode that follows the phone, and the last loaded data when there is no connection.",
+          "On the phone: a live feed, a receipt behind every line, the count of payments waiting for you on the app icon, a lock for the app with Face ID and the last loaded data when there is no connection.",
           "Phone endpoints use the device token from pairing (`dev_...`): `GET /v1/pocket/me`, `/feed`, `/held`, `/statement`, `POST /v1/pocket/freeze`, `POST /v1/pocket/challenge` and `POST /v1/pocket/held/:id`.",
         ],
       },

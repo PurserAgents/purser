@@ -84,7 +84,7 @@ export const stages: Stage[] = [
       { title: "Daily statement", text: "Every morning at 08:00: what each agent spent, earned and was stopped from doing." },
       { title: "Weekly report", text: "Monday at 08:00: seven days of totals, the busiest agent and how many payments were blocked." },
       { title: "Lock with Face ID", text: "A lock for the app. It asks for Face ID when you open it and after five minutes away." },
-      { title: "An app on your Home Screen", text: "Add it to your Home Screen and it opens full screen, in dark mode when your phone is." },
+      { title: "An app on your Home Screen", text: "Add it to your Home Screen and it opens full screen, like any other app." },
       { title: "Works on a bad connection", text: "With no connection it shows the last data it loaded and says when that was." },
       { title: "The computer side", text: "Pair a phone, turn on Face ID approvals for every agent and unpair a phone, all from the Alerts page." },
     ],

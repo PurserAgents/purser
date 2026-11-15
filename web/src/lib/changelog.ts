@@ -24,7 +24,7 @@ export const changelog: ChangelogEntry[] = [
       "The count of payments waiting for you on the app icon.",
       "Quiet hours: during them only payments waiting for you and watchdog freezes are sent.",
       "A daily statement at 08:00 in the phone's time zone and a weekly report on Monday at 08:00.",
-      "A lock for the app with Face ID, dark mode that follows the phone, and the last loaded data shown when there is no connection.",
+      "A lock for the app with Face ID, and the last loaded data shown when there is no connection.",
       "The phone can never move money on its own, change a rule or unfreeze an agent.",
     ],
   },

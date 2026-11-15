@@ -1,5 +1,5 @@
 /*
-  Purser in your pocket: the phone app. Its own tokens (light, and dark when the phone is set to dark), its own layout.
+  Purser in your pocket: the phone app. Its own tokens (always light on a phone, like the rest of Purser), its own layout.
   On a phone the site header and footer are hidden and the app fills the screen; on a computer the page keeps them
   and stays in the site's theme.
 */
@@ -42,36 +42,6 @@
   }
   body:has(.pocket) {
     background: #f7f7f8;
-  }
-}
-
-@media (prefers-color-scheme: dark) and (hover: none), (prefers-color-scheme: dark) and (max-width: 899px) {
-  .pocket {
-    --bg: #0b0b0c;
-    --bg-subtle: #0b0b0c;
-    --bg-muted: #222226;
-    --surface: #161618;
-    --line: #2a2a2f;
-    --line-strong: #44444b;
-    --text: #f4f4f5;
-    --text-2: #c2c2c9;
-    --text-3: #9a9aa4;
-    --accent: #f4f4f5;
-    --on-accent: #0b0b0c;
-    --ok: #5fcf9b;
-    --ok-bg: #12261c;
-    --stop: #ff8f82;
-    --stop-bg: #2c1614;
-    --stop-line: #5c2822;
-    --wait: #e8b452;
-    --wait-bg: #2c2211;
-    --pk-knob: #ffffff;
-    --pk-scrim: rgba(0, 0, 0, 0.6);
-    --pk-shadow: rgba(0, 0, 0, 0.8);
-    color-scheme: dark;
-  }
-  body:has(.pocket) {
-    background: #0b0b0c;
   }
 }
 
@@ -161,6 +131,20 @@
 }
 .pk-brand img {
   border-radius: 8px;
+}
+.pk-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0 4px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-2);
+  text-decoration: none;
+}
+.pk-back:active {
+  opacity: 0.6;
 }
 .pk-top-right {
   display: inline-flex;
