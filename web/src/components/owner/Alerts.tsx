@@ -11,6 +11,7 @@ import { useEngine } from "../Live";
 import { Card, EmptyState } from "../ui";
 import { ActionStatus, useAction } from "./Action";
 import { OwnerFrame, busiest, useOwner } from "./Frame";
+import { PhoneCard } from "./PhoneCard";
 import { AgentPicker } from "./Picker";
 
 const KINDS = Object.keys(alertLabel) as AlertKind[];
@@ -19,7 +20,7 @@ const USDG = { symbol: "USDG", decimals: 6 };
 
 export function Alerts() {
   return (
-    <OwnerFrame title="Know when it matters." lead="Alerts per agent, sent as signed webhooks to any URL you run. Every delivery carries a Purser-Signature you can check with the SDK.">
+    <OwnerFrame title="Know when it matters." lead="Purser on your phone, and alerts per agent sent as signed webhooks to any URL you run. Every delivery carries a Purser-Signature you can check with the SDK.">
       <Body />
     </OwnerFrame>
   );
@@ -27,9 +28,12 @@ export function Alerts() {
 
 function Body() {
   return (
-    <div className="cols-main">
-      <Webhooks />
-      <AlertSettings />
+    <div className="stack--page">
+      <PhoneCard />
+      <div className="cols-main">
+        <Webhooks />
+        <AlertSettings />
+      </div>
     </div>
   );
 }

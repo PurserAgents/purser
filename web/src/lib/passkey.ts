@@ -67,8 +67,36 @@ function derToRs(der: Uint8Array): { r: bigint; s: bigint } {
 }
 
 /** Signs an approval digest with the passkey; the answer goes to POST /v1/approvals/:id/passkey. */
-export async function signWithPasskey(safe: string, digest: string) {
-  const id = storedCredential(safe);
+export function signWithPasskey(safe: string, digest: string) {
+  return signWithCredential(storedCredential(safe), digest);
+}
+
+/**
+ * Creates a passkey for this phone (Face ID or fingerprint). The same key approves for every agent once the owner
+ * puts it on chain from the computer. Returns the P-256 public key and the credential id to keep on the phone.
+ */
+export async function createDevicePasskey(label: string): Promise<{ x: string; y: string; credentialId: string }> {
+  const challenge = crypto.getRandomValues(new Uint8Array(32));
+  const credential = (await navigator.credentials.create({
+    publicKey: {
+      challenge,
+      rp: { name: "Purser" },
+      user: { id: crypto.getRandomValues(new Uint8Array(16)), name: `Purser on ${label}`, displayName: `Purser on ${label}` },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+      authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "preferred" },
+      timeout: 120_000,
+    },
+  })) as PublicKeyCredential | null;
+  if (!credential) throw new Error("No passkey was created.");
+  const response = credential.response as AuthenticatorAttestationResponse;
+  const spki = new Uint8Array(response.getPublicKey?.() ?? new ArrayBuffer(0));
+  if (spki.length < 65 || spki[spki.length - 65] !== 0x04) throw new Error("This phone made a key that is not P-256.");
+  const point = spki.slice(spki.length - 64);
+  return { x: toHex(point.slice(0, 32)), y: toHex(point.slice(32)), credentialId: b64url(new Uint8Array(credential.rawId)) };
+}
+
+/** Signs a digest with one passkey (or any discoverable one when the id is unknown). */
+export async function signWithCredential(id: string | null, digest: string) {
   const assertion = (await navigator.credentials.get({
     publicKey: {
       challenge: fromHex(digest),

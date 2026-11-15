@@ -8,6 +8,10 @@ const config: NextConfig = {
   reactStrictMode: true,
   turbopack: { root: path.resolve(import.meta.dirname) },
   outputFileTracingRoot: path.resolve(import.meta.dirname),
+  // The phone app's service worker: always checked for a new version, allowed to serve the whole site.
+  async headers() {
+    return [{ source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache" }, { key: "Service-Worker-Allowed", value: "/" }] }];
+  },
 };
 
 export default config;

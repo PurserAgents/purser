@@ -44,7 +44,7 @@ export const ownerNav: NavItem[] = [
   { href: "/app/teams", label: "Teams", text: "Org chart, departments and budgets" },
   { href: "/app/accounting", label: "Accounting", text: "Profit and loss, cost per task and model" },
   { href: "/app/audit", label: "Audit trail", text: "Every action, signed and verifiable" },
-  { href: "/app/alerts", label: "Alerts", text: "Alerts and signed webhooks" },
+  { href: "/app/alerts", label: "Alerts", text: "Your phone, alerts and signed webhooks" },
 ];
 
 /** Header menus. Every page of the site is reachable from here or from the footer. */
@@ -55,6 +55,7 @@ export const navGroups: NavGroup[] = [
       { href: "/how", label: "How it works", text: "Accounts, rules and the path of a payment" },
       { href: "/firewall", label: "Watch an attack get blocked", text: "A hidden instruction meets the firewall" },
       { href: "/shield", label: "Purser Shield", text: "One agent attacked, every agent protected" },
+      { href: "/pocket", label: "Purser on your phone", text: "Approve with Face ID, watch live, freeze with one tap" },
       { href: "/templates", label: "Rule templates", text: "Ready rules for each kind of agent" },
       { href: "/pay", label: "Pay button", text: "One script tag to get paid" },
       { href: "/token", label: "Token", text: "$PURSER is live" },
@@ -89,6 +90,7 @@ export const footerNav: { title: string; items: NavItem[] }[] = [
       { href: "/how", label: "How it works" },
       { href: "/firewall", label: "Watch an attack get blocked" },
       { href: "/shield", label: "Purser Shield" },
+      { href: "/pocket", label: "Purser on your phone" },
       { href: "/templates", label: "Rule templates" },
       { href: "/pay", label: "Pay button" },
       { href: "/token", label: "Token" },

@@ -14,14 +14,17 @@ export interface Stage {
 
 export const statusLabel: Record<StageStatus, string> = { live: "Live", next: "Next", soon: "Soon", big: "The big one" };
 
-/** Shipped so far, newest first. Each line is something the live product does today. */
-export const shipped: { date: string; text: string }[] = [
-  { date: "2026-11-14", text: "Purser Shield: every attack one firewall catches protects every account" },
-  { date: "2026-11-14", text: "A fresh firewall check on every subscription charge and stream payout" },
-  { date: "2026-11-13", text: "Live on chain: accounts, rules, firewall, approvals and receipts" },
-  { date: "2026-11-13", text: "$PURSER live, with buy back and burn every 30 minutes" },
-  { date: "2026-11-13", text: "Every contract, the engine and the site open source" },
-  { date: "2026-11-11", text: "SDK, MCP server, CLI and guides for four agent frameworks" },
+/** Shipped so far, newest first. Each line is something the live product does today, listed under its stage. */
+export const shipped: { date: string; text: string; stage: string }[] = [
+  { date: "2026-11-15", stage: "pocket", text: "Purser in your pocket: approve with Face ID, a live feed and one tap freeze on your phone" },
+  { date: "2026-11-15", stage: "pocket", text: "Release or reject a payment Purser Shield held, with Face ID" },
+  { date: "2026-11-15", stage: "pocket", text: "Notifications with quiet hours, a daily statement and a weekly report" },
+  { date: "2026-11-14", stage: "shield", text: "Purser Shield: every attack one firewall catches protects every account" },
+  { date: "2026-11-14", stage: "shield", text: "A fresh firewall check on every subscription charge and stream payout" },
+  { date: "2026-11-13", stage: "accounts", text: "Live on chain: accounts, rules, firewall, approvals and receipts" },
+  { date: "2026-11-13", stage: "accounts", text: "$PURSER live, with buy back and burn every 30 minutes" },
+  { date: "2026-11-13", stage: "accounts", text: "Every contract, the engine and the site open source" },
+  { date: "2026-11-11", stage: "accounts", text: "SDK, MCP server, CLI and guides for four agent frameworks" },
 ];
 
 export const stages: Stage[] = [
@@ -63,16 +66,27 @@ export const stages: Stage[] = [
   {
     n: "03",
     slug: "pocket",
-    status: "next",
+    status: "live",
     title: "Purser in your pocket",
     short: "Phone",
     summary: "Your agents' money on your phone. Approve with Face ID, watch every payment as it happens, freeze anything with one tap.",
     items: [
-      { title: "Approve with Face ID", text: "A payment above your limit arrives as a notification. Look at it, approve or reject with your passkey." },
+      { title: "Pair with a code", text: "Your dashboard shows a code, your phone types it in. It works once and runs out after ten minutes." },
+      { title: "Approve with Face ID", text: "A payment above your limit arrives as a notification. Approve or reject it with your passkey, checked on chain." },
+      { title: "Release what the Shield held", text: "A payment Purser Shield holds waits as a card. Release or reject it with Face ID, checked by the engine." },
       { title: "A live feed", text: "Every payment, every earning and every blocked attempt across all your agents, as it happens." },
-      { title: "One tap freeze", text: "Stop one agent or all of them from anywhere. Only you can unfreeze." },
-      { title: "Alerts that matter", text: "Budget reached, a new payee, the watchdog stepping in. Nothing else." },
-      { title: "A daily statement", text: "What each agent spent, earned and was stopped from doing, every morning." },
+      { title: "A receipt behind every line", text: "Tap a line for who was paid, what for, the transaction and the firewall's reasons when it was blocked." },
+      { title: "Every agent at a glance", text: "Balance, spent today against its daily budget, its rules in plain words and its last payments." },
+      { title: "One tap freeze", text: "Stop one agent or all of them from anywhere. Only your wallet can unfreeze." },
+      { title: "Notifications that matter", text: "A payment waiting for you, a blocked attack, the watchdog stepping in, a spending alert. Pick which ones you get." },
+      { title: "The count on the app icon", text: "The number of payments waiting for you sits on the app icon." },
+      { title: "Quiet hours", text: "At night only payments waiting for you and watchdog freezes get through. The rest waits in the feed." },
+      { title: "Daily statement", text: "Every morning at 08:00: what each agent spent, earned and was stopped from doing." },
+      { title: "Weekly report", text: "Monday at 08:00: seven days of totals, the busiest agent and how many payments were blocked." },
+      { title: "Lock with Face ID", text: "A lock for the app. It asks for Face ID when you open it and after five minutes away." },
+      { title: "An app on your Home Screen", text: "Add it to your Home Screen and it opens full screen, in dark mode when your phone is." },
+      { title: "Works on a bad connection", text: "With no connection it shows the last data it loaded and says when that was." },
+      { title: "The computer side", text: "Pair a phone, turn on Face ID approvals for every agent and unpair a phone, all from the Alerts page." },
     ],
     why: "Approval only protects you if you can give it in seconds. The owner's side has to live where the owner is.",
   },

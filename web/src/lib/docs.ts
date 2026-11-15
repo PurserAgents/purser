@@ -126,6 +126,22 @@ export const docs: DocGroup[] = [
           "Name a guardian and a waiting period of at least one day. If you lose your wallet, the guardian proposes a new set of owners. It takes effect only after the waiting period, and any owner can cancel it until then.",
         ],
       },
+      {
+        id: "pocket",
+        title: "Purser on your phone",
+        body: [
+          "The phone app lives at /pocket. To pair it, open Alerts in your dashboard on your computer, press Pair a phone and type the code into your phone. A code has 8 characters, works once and runs out after 10 minutes. While pairing, the phone can make its own Face ID key (a passkey); the computer then puts that key on chain for your agents with one confirmation per agent. Each agent keeps one Face ID key, so a new phone replaces the earlier one.",
+          "On an iPhone, notifications need the app on the Home Screen: open /pocket in Safari, tap Share, then Add to Home Screen (iOS 16.4 or newer). On Android and on a computer the browser asks for permission directly. Notifications are Web Push, encrypted for your phone, sent by the engine itself.",
+          "The phone never moves money on its own and it can never unfreeze. Approving a payment is a passkey signature that the passkey contract checks on chain. Releasing a payment Purser Shield holds, and unlocking the app, are passkey signatures over a single-use challenge that the engine checks against the key the phone registered when it was paired. Freezing goes through the watchdog key, only for agents where you left the watchdog on. Unfreezing and every rule change stay with your wallet.",
+          "Quiet hours are a setting per phone, off at first, 22:00 to 07:00 in the phone's own time once switched on. While they run, only payments waiting for you and watchdog freezes are sent; everything else still shows in the feed. A daily statement arrives at 08:00 in the phone's time zone and a weekly report on Monday at 08:00, each can be switched off. Unpair a phone from its own settings or from the dashboard, and it stops working at once.",
+        ],
+        bullets: [
+          "What the phone can do: see your agents, balances, budgets and rules; get notifications; approve or reject with Face ID; release or reject a payment Purser Shield holds; freeze one agent or all of them; read statements.",
+          "What it cannot do: send a payment, change a rule, add a key, unfreeze an agent or open an account.",
+          "On the phone: a live feed, a receipt behind every line, the count of payments waiting for you on the app icon, a lock for the app with Face ID, dark mode that follows the phone, and the last loaded data when there is no connection.",
+          "Phone endpoints use the device token from pairing (`dev_...`): `GET /v1/pocket/me`, `/feed`, `/held`, `/statement`, `POST /v1/pocket/freeze`, `POST /v1/pocket/challenge` and `POST /v1/pocket/held/:id`.",
+        ],
+      },
     ],
   },
   {

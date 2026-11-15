@@ -9,6 +9,26 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    date: "2026-11-15",
+    version: "0.7.0",
+    title: "Purser in your pocket",
+    summary: "Your agents' money on your phone. Approve with Face ID, watch every payment as it happens, freeze anything with one tap.",
+    items: [
+      "A phone app at /pocket that installs to the Home Screen. Pair it with a code from the Alerts page of your dashboard: 8 characters, single use, 10 minutes.",
+      "Notifications sent by the engine as encrypted Web Push: a payment waiting for you, a blocked payment, the watchdog stepping in, a spending alert. Each kind can be switched off, except payments waiting for you.",
+      "Approve or reject a payment above your limit with Face ID. The phone makes its own passkey when it is paired, the computer puts it on chain per agent, and the passkey contract checks every approval.",
+      "Release or reject a payment Purser Shield held with Face ID. The engine checks the passkey signature over a single-use challenge before anything moves.",
+      "A live feed of every payment, earning and blocked attempt, with a receipt behind each line: who was paid, what for, the transaction, and the firewall's reasons when it was blocked.",
+      "Each agent at a glance: balance, spent today against its daily budget, its rules in plain words and its last payments.",
+      "One tap freeze, one agent or all of them. Only the wallet can unfreeze.",
+      "The count of payments waiting for you on the app icon.",
+      "Quiet hours: during them only payments waiting for you and watchdog freezes are sent.",
+      "A daily statement at 08:00 in the phone's time zone and a weekly report on Monday at 08:00.",
+      "A lock for the app with Face ID, dark mode that follows the phone, and the last loaded data shown when there is no connection.",
+      "The phone can never move money on its own, change a rule or unfreeze an agent.",
+    ],
+  },
+  {
     date: "2026-11-14",
     version: "0.6.0",
     title: "Purser Shield",

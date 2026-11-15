@@ -63,6 +63,7 @@ cat <<MSG
   Site            http://localhost:$WEB_PORT
   Dashboard       Connect wallet, then "Use the test wallet" (it owns the seeded agents)
   Firewall        http://localhost:$WEB_PORT/firewall, press "Run it"
+  Phone app       http://localhost:$WEB_PORT/pocket, press "Use the test wallet" (or pair it from Alerts in the dashboard)
 
 Press Ctrl-C to stop the site, the engine and the local chain.
 MSG

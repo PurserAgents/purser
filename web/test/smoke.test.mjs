@@ -143,7 +143,7 @@ after(async () => {
 });
 
 const docIds = [
-  "overview", "quickstart", "agent-accounts", "identity", "rules", "approvals", "co-sign", "freeze", "recovery",
+  "overview", "quickstart", "agent-accounts", "identity", "rules", "approvals", "co-sign", "freeze", "recovery", "pocket",
   "agent-key", "x402", "models", "apps", "streams", "subscriptions",
   "storefront", "pay-button", "splits", "invoices",
   "firewall", "shield", "watchdog", "audit-trail",
@@ -218,6 +218,49 @@ for (const [route, ids] of Object.entries(routes)) {
     assert.doesNotMatch(text, forbiddenText, `${route} says sample, demo, example or illustration: ${text.match(forbiddenText)?.[0]}`);
   });
 }
+
+test("the phone app: both pages, the manifest, the service worker and the icons; copy rules; dark mode only there", async () => {
+  for (const route of ["/pocket", "/pocket/statement"]) {
+    const { status, body } = await get(route);
+    assert.equal(status, 200, route);
+    assert.match(body, /class="pocket"/, route + " renders the app shell");
+    assert.match(body, /<title>[^<]*Purser[^<]*<\/title>/, "title");
+    assert.match(body, /<meta[^>]*(theme-color[^>]*\(prefers-color-scheme: dark\)|\(prefers-color-scheme: dark\)[^>]*theme-color)/, "theme colour for a dark phone");
+    for (const [pattern, name] of forbidden) assert.doesNotMatch(body, pattern, `${route} contains ${name}`);
+    assert.doesNotMatch(textOf(body), forbiddenText, route);
+    const css = (await Promise.all([...body.matchAll(/href="(\/_next\/static\/[^"]+\.css)"/g)].map((m) => get(m[1])))).map((r) => r.body).join("\n");
+    assert.match(css, /\.pk-screen/, "phone styles loaded");
+    assert.match(css, /prefers-color-scheme:\s*dark/, "the phone app follows the phone's colour setting");
+  }
+  const manifest = await get("/manifest.webmanifest");
+  assert.equal(manifest.status, 200);
+  const m = JSON.parse(manifest.body);
+  assert.equal(m.start_url, "/pocket");
+  assert.equal(m.display, "standalone");
+  assert.ok(m.icons.length >= 3);
+  for (const icon of m.icons) {
+    const r = await fetch(base + icon.src);
+    assert.equal(r.status, 200, icon.src);
+    assert.match(r.headers.get("content-type") ?? "", /image\/png/);
+  }
+  assert.match((await get("/pocket")).body, /rel="manifest"/, "the page links the manifest");
+  const sw = await get("/sw.js");
+  assert.equal(sw.status, 200);
+  assert.equal(sw.headers.get("service-worker-allowed"), "/");
+  assert.match(sw.headers.get("cache-control") ?? "", /no-cache/);
+  for (const word of ["push", "notificationclick", "setAppBadge", "clearAppBadge"]) assert.match(sw.body, new RegExp(word), word);
+  const home = await get("/");
+  assert.match(home.body, /href="\/pocket"/, "the Product menu links the phone app");
+  assert.match(textOf(home.body), /Purser on your phone/);
+  const docs = textOf((await get("/docs")).body);
+  assert.match(docs, /never moves money on its own/);
+  assert.match(docs, /iOS 16\.4/);
+  const roadmap = (await get("/roadmap")).body;
+  assert.match(roadmap.split('id="pocket"')[1].split('id="models"')[0], /rm-pill--live/, "the phone stage is live");
+  const changelog = textOf((await get("/changelog")).body);
+  assert.match(changelog, /0\.7\.0/);
+  assert.match(changelog, /Purser in your pocket/);
+});
 
 test("header menus reach every page group", async () => {
   const { body } = await get("/");

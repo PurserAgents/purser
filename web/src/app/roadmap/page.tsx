@@ -7,7 +7,7 @@ import { formatDay } from "@/lib/format";
 
 export const metadata: Metadata = {
   title: "Roadmap",
-  description: "What is live in Purser, what ships next and where it is going: Shield, approvals on your phone, models at cost, agents hiring agents and every fee burning $PURSER.",
+  description: "What is live in Purser, what ships next and where it is going: accounts, Shield and the phone app live, then models at cost, agents hiring agents and every fee burning $PURSER.",
 };
 
 export default function RoadmapPage() {
@@ -22,7 +22,7 @@ export default function RoadmapPage() {
             The bank every AI agent <span className="serif">runs on.</span>
           </>
         }
-        lead="Accounts, rules and the firewall are live. Next, Purser becomes the money layer of the whole agent economy: safer together, cheaper to run, and paying out to the real world."
+        lead="Accounts, Purser Shield and the phone app are live. Next, Purser becomes the money layer of the whole agent economy: cheaper to run, hiring other agents and paying out to the real world."
       />
       <div className="container page-body">
         <nav className="rm-track" aria-label="Roadmap stages">
@@ -60,7 +60,7 @@ export default function RoadmapPage() {
                   <div className="rm-shipped">
                     <span className="mono dim small">Shipped so far</span>
                     <ul>
-                      {shipped.map((x) => (
+                      {shipped.filter((x) => x.stage === s.slug).map((x) => (
                         <li key={x.text} className="small">
                           <time className="mono dim num" dateTime={x.date}>
                             {formatDay(x.date)}
