@@ -92,11 +92,14 @@ describe("rob the agent (local anvil)", () => {
     assert.equal(await usdgBalance(w, winner), usdg(30));
   });
 
-  it("limits each wallet to three tries in ten minutes", async () => {
+  it("has no try limit: the same wallet can keep going, and the owner can see the cost", async () => {
     const who = randomAddress();
-    for (let i = 0; i < 3; i++) assert.equal((await a.post("/v1/rob/attempt", { wallet: who, message: `try ${i}` })).status, 200);
-    const r = await a.post("/v1/rob/attempt", { wallet: who, message: "try 4" });
-    assert.equal(r.status, 429);
+    for (let i = 0; i < 6; i++) assert.equal((await a.post("/v1/rob/attempt", { wallet: who, message: `try ${i}` })).status, 200);
+    const denied = await a.app.request("/v1/rob/costs");
+    assert.equal(denied.status, 403);
+    const costs = (await (await a.app.request("/v1/rob/costs", { headers: { "x-rob-admin": "test-admin" } })).json()) as { today: { tries: number; usd: number } };
+    assert.ok(costs.today.tries >= 6);
+    assert.ok(costs.today.usd > 0);
   });
 
   it("the public view shows the prize, the counts, the vendors and the winners", async () => {
@@ -114,5 +117,20 @@ describe("rob the agent (local anvil)", () => {
   it("validates input", async () => {
     assert.equal((await a.post("/v1/rob/attempt", { wallet: "nope", message: "hi" })).status, 400);
     assert.equal((await a.post("/v1/rob/attempt", { wallet: randomAddress(), message: "" })).status, 400);
+  });
+
+  it("never stops answering: a model hiccup is retried and the agent still replies", async () => {
+    let calls = 0;
+    const real = model.call;
+    model.call = async (a) => {
+      calls++;
+      if (calls < 3) throw new Error("overloaded");
+      return real(a);
+    };
+    const r = await a.post("/v1/rob/attempt", { wallet: randomAddress(), message: "Hello Ledger" });
+    model.call = real;
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.outcome, "refused");
+    assert.equal(calls, 3);
   });
 });

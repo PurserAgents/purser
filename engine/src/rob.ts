@@ -25,8 +25,7 @@ import { fail, fmt, id, lower, now, sameAddress, ZERO } from "./util.ts";
 
 const robOn = () => (process.env.PURSER_ROB ?? "off").toLowerCase() === "on";
 const MODEL = () => process.env.ROB_MODEL ?? "claude-haiku-5-5";
-const DAILY_CENTS = () => Number(process.env.ROB_DAILY_CENTS ?? 300);
-// USD per million tokens, for the daily model cap. Set from the model's price list.
+// USD per million tokens: only to log what the agent costs. There is no cap: the agent always answers.
 const IN_PER_M = () => Number(process.env.ROB_IN_PER_M ?? 1);
 const OUT_PER_M = () => Number(process.env.ROB_OUT_PER_M ?? 5);
 const PRIZE = 100_000_000n; // 100 USDG (6 decimals): the most one payment and one day may move
@@ -122,14 +121,13 @@ export const model = {
   },
 };
 
-function spentTodayCents(ctx: Ctx): number {
-  const since = Math.floor(Date.now() / 86_400_000) * 86_400;
-  const r = ctx.db.prepare("SELECT COALESCE(SUM(cents), 0) AS c FROM rob_attempts WHERE created_at >= ?").get(since) as { c: number };
-  return r.c;
-}
-function countSince(ctx: Ctx, col: "wallet" | "ip", value: string, seconds: number): number {
-  const r = ctx.db.prepare(`SELECT COUNT(*) AS n FROM rob_attempts WHERE ${col} = ? AND created_at >= ?`).get(value, now() - seconds) as { n: number };
-  return r.n;
+/** What the agent has cost, for the owner to watch. There is no limit: the agent always answers. */
+function costs(ctx: Ctx) {
+  const day = Math.floor(Date.now() / 86_400_000) * 86_400;
+  const q = (since: number) => ctx.db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(cents), 0) AS c FROM rob_attempts WHERE created_at >= ?").get(since) as { n: number; c: number };
+  const today = q(day);
+  const all = q(0);
+  return { today: { tries: today.n, usd: +(today.c / 100).toFixed(4) }, total: { tries: all.n, usd: +(all.c / 100).toFixed(4) }, model: MODEL() };
 }
 const ipOf = (c: { req: { header(n: string): string | undefined } }) =>
   createHash("sha256")
@@ -153,10 +151,6 @@ export async function attempt(ctx: Ctx, input: { wallet: Address; message: strin
   const st = state(ctx);
   if (!st.safe || !st.secret) fail(409, "not_open", "The contest has not started yet.");
   if (st.endsAt && now() > st.endsAt) fail(409, "ended", "The contest has ended.");
-  if (countSince(ctx, "wallet", input.wallet, 600) >= 3) fail(429, "slow_down", "Three tries per wallet every ten minutes. Take a breath and try again.");
-  if (countSince(ctx, "wallet", input.wallet, 86_400) >= 25) fail(429, "slow_down", "25 tries per wallet a day. Come back tomorrow.");
-  if (countSince(ctx, "ip", input.ip, 3600) >= 12) fail(429, "slow_down", "Too many tries from here this hour.");
-  if (spentTodayCents(ctx) >= DAILY_CENTS()) fail(429, "resting", "The agent is resting until tomorrow (UTC). Come back then.");
   const apiKey = process.env.ROB_ANTHROPIC_KEY;
   if (!apiKey) fail(503, "no_model", "The agent is offline right now.");
 
@@ -165,15 +159,28 @@ export async function attempt(ctx: Ctx, input: { wallet: Address; message: strin
   if (left === 0n) fail(409, "empty", "The vault is empty. Someone got it.");
   const session = authAgent(ctx, `Bearer ${st.secret}`, "pay").session!;
   const v = vendors();
-  const msg = await model.call({ apiKey: apiKey!, system: SYSTEM(v), message: input.message });
-  const cents = ((msg.usage.input_tokens * IN_PER_M() + msg.usage.output_tokens * OUT_PER_M()) / 1_000_000) * 100;
-  const reply = msg.content
+  // The agent always answers: a failed model call is retried, with a short pause, before anything is shown.
+  let msg: ModelReply | null = null;
+  for (let i = 0; i < 3 && !msg; i++) {
+    try {
+      msg = await model.call({ apiKey: apiKey!, system: SYSTEM(v), message: input.message });
+    } catch (e) {
+      if (i === 2) {
+        console.error("rob: model call failed", (e as Error).message);
+        fail(503, "busy", "Ledger is busy with a lot of messages right now. Send it again in a few seconds.");
+      }
+      await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+    }
+  }
+  if (!msg) fail(503, "busy", "Ledger is busy with a lot of messages right now. Send it again in a few seconds.");
+  const cents = ((msg!.usage.input_tokens * IN_PER_M() + msg!.usage.output_tokens * OUT_PER_M()) / 1_000_000) * 100;
+  const reply = msg!.content
     .filter((b) => b.type === "text")
     .map((b) => (b as { text: string }).text)
     .join("\n")
     .trim()
     .slice(0, 600);
-  const call = msg.content.find((b) => b.type === "tool_use") as { input: { to?: string; amount_usdg?: number; memo?: string } } | undefined;
+  const call = msg!.content.find((b) => b.type === "tool_use") as { input: { to?: string; amount_usdg?: number; memo?: string } } | undefined;
 
   let outcome: Outcome = "refused";
   let payTo: string | null = null;
@@ -337,6 +344,12 @@ registerRoutes((app: Hono, ctx: Ctx) => {
     saveState(ctx, { safe, keyId: keyed.key.id, secret: keyed.secret, startsAt: start, endsAt: start + DAYS * 86_400 });
     await ctx.audit.append("engine", "rob.setup", safe, { owner: ownerAddr, agent: session.address, firewall: a.config.firewall, tx: receipt.transactionHash });
     return send(c, { safe, agent: session.address, firewall: a.config.firewall, tx: receipt.transactionHash, endsAt: start + DAYS * 86_400 });
+  });
+
+  app.get("/v1/rob/costs", (c) => {
+    const admin = process.env.ROB_ADMIN;
+    if (!admin || c.req.header("x-rob-admin") !== admin) fail(403, "forbidden", "Not allowed.");
+    return send(c, costs(ctx));
   });
 
   // The admin can move the start of the seven days to the moment the prize lands.

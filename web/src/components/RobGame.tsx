@@ -197,7 +197,7 @@ export function RobGame() {
                 )}
               </div>
             )}
-            <p className="micro dim">Three tries per wallet every ten minutes. Free to play: you never send anything.</p>
+            <p className="micro dim">Free to play, as many tries as you like. You never send anything.</p>
           </form>
         </Card>
         <Card title="The rules">
