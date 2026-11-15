@@ -6,7 +6,7 @@ import { engineUrl } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
-const PASS_REQUEST = ["authorization", "content-type", "accept", "last-event-id", "payment-signature", "x-payment"];
+const PASS_REQUEST = ["authorization", "content-type", "accept", "last-event-id", "payment-signature", "x-payment", "x-forwarded-for", "x-real-ip"];
 const PASS_RESPONSE = ["content-type", "content-disposition", "payment-required", "payment-response", "x-payment-response"];
 
 async function proxy(req: Request, ctx: { params: Promise<{ path: string[] }> }): Promise<Response> {

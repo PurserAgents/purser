@@ -1677,3 +1677,26 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- Rob the agent ---------- */
+.rob-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+@media (max-width: 899px) { .rob-pair { grid-template-columns: 1fr; } }
+.rob-form { gap: 14px; }
+.rob-text { min-height: 150px; resize: vertical; font-family: var(--font-sans); line-height: 1.5; }
+.rob-error { color: var(--stop); }
+.rob-tag { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: var(--r-pill); border: 1px solid var(--line); font: 500 12px var(--font-mono); letter-spacing: 0.02em; color: var(--text-2); white-space: nowrap; }
+.rob-tag--blocked { color: var(--stop); background: var(--stop-bg); border-color: var(--stop-line); }
+.rob-tag--held { color: var(--wait); background: var(--wait-bg); border-color: transparent; }
+.rob-tag--win { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+.rob-tag--paid { color: var(--ok); background: var(--ok-bg); border-color: transparent; }
+.rob-result { display: grid; gap: 8px; padding: 14px 16px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--bg-subtle); }
+.rob-result--win { border-color: var(--accent); }
+.rob-result--blocked { border-color: var(--stop-line); background: var(--stop-bg); }
+.rob-vendors { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 8px; }
+.rob-vendors li { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.rob-feed { list-style: none; margin: 0; padding: 0; }
+.rob-feed li { padding: 16px 20px; border-top: 1px solid var(--line); display: grid; gap: 6px; }
+.rob-feed li:first-child { border-top: 0; }
+.rob-feed__head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rob-feed__head .micro:last-child { margin-left: auto; }
+.rob-feed__msg { white-space: pre-wrap; overflow-wrap: anywhere; }
