@@ -252,7 +252,7 @@ test("the phone app: both pages, the manifest, the service worker and the icons;
   for (const word of ["push", "notificationclick", "setAppBadge", "clearAppBadge"]) assert.match(sw.body, new RegExp(word), word);
   const home = await get("/");
   assert.match(home.body, /href="\/pocket"/, "the Product menu links the phone app");
-  assert.match(textOf(home.body), /Purser on your phone/);
+  assert.match(textOf(home.body), /Purser in your pocket/);
   const docs = textOf((await get("/docs")).body);
   assert.match(docs, /never moves money on its own/);
   assert.match(docs, /iOS 16\.4/);

@@ -182,7 +182,7 @@ try {
   let code;
   await step("computer: the card on the Alerts page makes a code after one press", async () => {
     await desk.goto(SITE + "/app/alerts");
-    await has(desk, "Purser on your phone", 40000);
+    await has(desk, "Purser in your pocket", 40000);
     await has(desk, "Pair a phone");
     assert.doesNotMatch(await text(desk), /Pairing code/);
     await shot(desk, "desk-card-idle");
