@@ -6,6 +6,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 DRY=""; [ "${1:-}" = "--dry-run" ] && DRY="--dry-run"
+# With NPM_TOKEN set (a granular publish token), npm uses it from a throwaway config and nothing is saved.
+if [ -n "${NPM_TOKEN:-}" ]; then
+  NPMRC=$(mktemp); trap 'rm -f "$NPMRC"' EXIT
+  printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$NPMRC"
+  export NPM_CONFIG_USERCONFIG="$NPMRC"
+fi
 if [ -z "$DRY" ]; then
   who=$(npm whoami 2>/dev/null || true)
   [ -n "$who" ] || { echo "Not logged in to npm. Run: npm login"; exit 1; }

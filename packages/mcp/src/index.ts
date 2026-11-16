@@ -121,6 +121,20 @@ export function createServer(purser: Purser) {
   );
 
   server.registerTool(
+    "purser_ask_model",
+    {
+      title: "Ask an AI model at cost",
+      description: "Ask an AI model and pay the provider's own price from the account, no markup. level picks the cheapest model good enough.",
+      inputSchema: { prompt: z.string(), level: z.enum(["fast", "balanced", "best"]).default("fast"), system: z.string().optional(), max_tokens: z.number().int().min(1).max(32000).default(1024) },
+    },
+    async (a) => {
+      const messages = [...(a.system ? [{ role: "system", content: a.system }] : []), { role: "user", content: a.prompt }];
+      const r = await purser.chat.completions.create({ model: `auto:${a.level}`, messages, max_tokens: a.max_tokens });
+      return text(`${r.choices[0]?.message.content ?? ""}\n\n(${r.purser.model ?? r.model}, ` + "$" + `${r.purser.costUsd} at the provider's price)`);
+    },
+  );
+
+  server.registerTool(
     "purser_sell",
     {
       title: "Sell a service",

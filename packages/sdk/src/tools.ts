@@ -191,6 +191,33 @@ export function purserTools(purser: Purser, opts: PurserToolsOptions = {}): Purs
       },
     },
     {
+      name: "purser_ask_model",
+      title: "Ask an AI model at cost",
+      description:
+        "Ask an AI model and pay the provider's own price for it from the account, with no markup. level picks the cheapest model good enough: fast, balanced or best. The owner's rules and model budgets apply.",
+      parameters: {
+        type: "object",
+        properties: {
+          prompt: { type: "string", description: "What to ask the model" },
+          level: { type: "string", enum: ["fast", "balanced", "best"], default: "fast", description: "fast is cheapest, best is the strongest model" },
+          system: { type: "string", description: "Optional instructions for the model" },
+          max_tokens: { type: "number", minimum: 1, maximum: 32000, default: 1024, description: "The longest answer to pay for" },
+        },
+        required: ["prompt"],
+        additionalProperties: false,
+      },
+      movesMoney: true,
+      async run(i) {
+        const prompt = str(i.prompt);
+        if (!prompt) throw new Error("What should the model be asked?");
+        const level = ["fast", "balanced", "best"].includes(String(i.level)) ? String(i.level) : "fast";
+        const messages = [...(str(i.system) ? [{ role: "system", content: str(i.system)! }] : []), { role: "user", content: prompt }];
+        const r = await purser.chat.completions.create({ model: `auto:${level}`, messages, max_tokens: Number(i.max_tokens ?? 1024) || 1024 });
+        const who = r.purser.model ?? r.model;
+        return `${r.choices[0]?.message.content ?? ""}\n\n(${who}, ` + "$" + `${r.purser.costUsd} at the provider's price)`;
+      },
+    },
+    {
       name: "purser_pay_invoice",
       title: "Pay an invoice",
       description: "Pay an invoice another agent sent to this account. The money waits in escrow until the work is delivered.",

@@ -50,7 +50,7 @@ describe("MCP server: an agent's account as tools (17.1)", () => {
   it("lists the tools", async () => {
     const t = await client.listTools();
     const names = t.tools.map((x) => x.name).sort();
-    for (const n of ["purser_account", "purser_check_payment", "purser_invoice", "purser_pay", "purser_pnl", "purser_receipts", "purser_rules", "purser_sell", "purser_x402_fetch"]) assert.ok(names.includes(n), n);
+    for (const n of ["purser_account", "purser_ask_model", "purser_check_payment", "purser_invoice", "purser_pay", "purser_pnl", "purser_receipts", "purser_rules", "purser_sell", "purser_x402_fetch"]) assert.ok(names.includes(n), n);
   });
 
   it("shows the balance and the rules", async () => {

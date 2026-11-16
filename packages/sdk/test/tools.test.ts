@@ -29,11 +29,11 @@ describe("purserTools: the framework-neutral agent tools", () => {
 
   const tool = (name: string, tools = purserTools(new Purser({ baseUrl: url, apiKey }))) => tools.find((t) => t.name === name)!;
 
-  it("has eight tools with JSON Schemas every framework accepts", () => {
+  it("has nine tools with JSON Schemas every framework accepts", () => {
     const tools = purserTools(new Purser({ baseUrl: "http://x", apiKey: "prs_x" }));
     assert.deepEqual(
       tools.map((t) => t.name),
-      ["purser_account", "purser_rules", "purser_check_payment", "purser_pay", "purser_receipts", "purser_paid_fetch", "purser_pay_invoice", "purser_profit"],
+      ["purser_account", "purser_rules", "purser_check_payment", "purser_pay", "purser_receipts", "purser_paid_fetch", "purser_ask_model", "purser_pay_invoice", "purser_profit"],
     );
     for (const t of tools) {
       assert.equal(t.parameters.type, "object");
@@ -41,7 +41,7 @@ describe("purserTools: the framework-neutral agent tools", () => {
       for (const r of t.parameters.required) assert.ok(t.parameters.properties[r], `${t.name}: ${r} is described`);
       assert.ok(t.description.length > 20);
     }
-    assert.deepEqual(tools.filter((t) => t.movesMoney).map((t) => t.name), ["purser_pay", "purser_paid_fetch", "purser_pay_invoice"]);
+    assert.deepEqual(tools.filter((t) => t.movesMoney).map((t) => t.name), ["purser_pay", "purser_paid_fetch", "purser_ask_model", "purser_pay_invoice"]);
   });
 
   it("read-only and only= narrow the set", () => {

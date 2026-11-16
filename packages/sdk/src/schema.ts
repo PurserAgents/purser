@@ -647,7 +647,8 @@ export type EngineEventType =
   | "invoice"
   | "audit"
   | "alert"
-  | "demo";
+  | "demo"
+  | "model";
 
 export interface EngineEvent<T = unknown> {
   id: number;

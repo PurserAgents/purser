@@ -10,7 +10,7 @@
  *   };
  *
  * The agent gets actions to read its account and rules, check and make payments, read receipts, fetch paid URLs
- * (x402), pay invoices and read its profit. Every payment goes through the owner's rules and Purser's firewall
+ * (x402), ask AI models at the provider's own price, pay invoices and read its profit. Every payment goes through the owner's rules and Purser's firewall
  * first; a blocked payment is answered with the reasons, and the agent is told not to try another way.
  */
 import type { Action, ActionParameter, ActionResult, HandlerCallback, IAgentRuntime, Memory, Plugin } from "@elizaos/core";
@@ -53,6 +53,7 @@ const SIMILES: Record<string, string[]> = {
   purser_pay: ["PAY", "SEND_PAYMENT", "SEND_USDG", "TRANSFER"],
   purser_receipts: ["RECEIPTS", "PAYMENT_HISTORY", "TRANSACTIONS"],
   purser_paid_fetch: ["X402_FETCH", "PAID_FETCH", "BUY_API_CALL"],
+  purser_ask_model: ["ASK_MODEL", "ASK_AI", "THINK_HARDER", "CALL_LLM"],
   purser_pay_invoice: ["PAY_INVOICE"],
   purser_profit: ["PROFIT_AND_LOSS", "PNL", "EARNINGS"],
 };
@@ -103,7 +104,7 @@ export const purserActions: Action[] = SPECS.map(toAction);
 
 export const purserPlugin: Plugin = {
   name: "purser",
-  description: "A bank account for the agent: balances, spending rules, payments checked by a firewall, receipts, paid URLs (x402), invoices and profit, on Purser.",
+  description: "A bank account for the agent: balances, spending rules, payments checked by a firewall, receipts, paid URLs (x402), AI models at cost, invoices and profit, on Purser.",
   config: { PURSER_API_KEY: null, PURSER_ENGINE_URL: null },
   init: async (_config: Record<string, string>, runtime: IAgentRuntime) => {
     if (!setting(runtime, "PURSER_API_KEY")) {

@@ -45,7 +45,7 @@ describe("@purseragents/ai-sdk in a real generateText loop", () => {
 
   it("is a ToolSet keyed by tool name, with JSON Schemas the model sees", async () => {
     const tools = purserTools({ apiKey: "prs_x", baseUrl: "http://x" });
-    assert.deepEqual(Object.keys(tools), ["purser_account", "purser_rules", "purser_check_payment", "purser_pay", "purser_receipts", "purser_paid_fetch", "purser_pay_invoice", "purser_profit"]);
+    assert.deepEqual(Object.keys(tools), ["purser_account", "purser_rules", "purser_check_payment", "purser_pay", "purser_receipts", "purser_paid_fetch", "purser_ask_model", "purser_pay_invoice", "purser_profit"]);
     const model = scripted("purser_account", {});
     await generateText({ model, tools: purserTools({ apiKey, baseUrl: url }), prompt: "What is my balance?", stopWhen: stepCountIs(3) });
     const sent = model.doGenerateCalls[0].tools!.find((t) => t.name === "purser_pay") as { inputSchema: { required: string[] } };
