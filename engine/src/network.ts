@@ -6,6 +6,7 @@ import { accountRow, readAccount } from "./accounts.ts";
 import { registerRoutes } from "./api/registry.ts";
 import { param, qInt, safeParam, send } from "./api/http.ts";
 import { chainNow, type Ctx } from "./ctx.ts";
+import { kvGet } from "./db.ts";
 import { listReceipts } from "./receipts.ts";
 import { listServices } from "./storefront.ts";
 import { fail, lower, usd } from "./util.ts";
@@ -138,7 +139,14 @@ export async function economy(ctx: Ctx, range: "24h" | "30d" = "24h"): Promise<E
 
 export async function leaderboard(ctx: Ctx, limit = 50): Promise<LeaderboardEntry[]> {
   const since = (await chainNow(ctx)) - 30 * 86400;
-  const rows = ctx.db.prepare("SELECT safe, name, kind FROM accounts WHERE public = 1").all() as { safe: string; name: string; kind: LeaderboardEntry["kind"] }[];
+  // Purser's own accounts are never ranked: the Rob the agent vault is a game, not an agent at work.
+  const own = new Set<string>();
+  const rob = kvGet(ctx.db, "rob:state");
+  if (rob) {
+    const safe = (JSON.parse(rob) as { safe?: string | null }).safe;
+    if (safe) own.add(safe.toLowerCase());
+  }
+  const rows = (ctx.db.prepare("SELECT safe, name, kind FROM accounts WHERE public = 1").all() as { safe: string; name: string; kind: LeaderboardEntry["kind"] }[]).filter((r) => !own.has(r.safe.toLowerCase()));
   const list = rows.map((r) => {
     const earned = sumUsd(ctx, `safe = ? AND ${IN} AND created_at >= ?`, [r.safe, since]);
     const spent = sumUsd(ctx, `safe = ? AND ${OUT} AND created_at >= ?`, [r.safe, since]);

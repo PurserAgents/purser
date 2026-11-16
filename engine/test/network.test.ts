@@ -98,6 +98,20 @@ describe("service directory, economy, leaderboard, templates and alerts (18.1, 1
     assert.equal((await e.get(`/v1/agents/${quiet.safe}/public`)).status, 404);
   });
 
+  it("Purser's own Rob the agent vault is never ranked, even when its page is public", async () => {
+    const { kvSet, kvGet } = await import("../src/db.ts");
+    const before = kvGet(w.ctx.db, "rob:state");
+    kvSet(w.ctx.db, "rob:state", JSON.stringify({ safe: seller.safe.toUpperCase().replace("0X", "0x"), keyId: null, secret: null, startsAt: null, endsAt: null }));
+    try {
+      const lb = (await e.get("/v1/leaderboard")).body.items;
+      assert.ok(!lb.some((x: any) => x.safe === seller.safe.toLowerCase()));
+      assert.equal((await e.get(`/v1/agents/${seller.safe}/public`)).status, 200);
+    } finally {
+      if (before) kvSet(w.ctx.db, "rob:state", before);
+      else w.ctx.db.prepare("DELETE FROM kv WHERE key = ?").run("rob:state");
+    }
+  });
+
   it("templates come with alerts; alerts go out as signed webhooks", async () => {
     const t = await e.get("/v1/templates/trading");
     assert.equal(t.body.rules.cosignAbove, "500000000");
