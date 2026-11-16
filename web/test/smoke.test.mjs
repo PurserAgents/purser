@@ -156,6 +156,7 @@ const routes = {
   "/": ["hero", "how", "safety", "money", "money-out", "money-in", "developers", "network", "start"],
   "/how": ["account", "rules", "payment", "safety", "books", "never"],
   "/firewall": [],
+  "/models": ["prices"],
   "/shield": [],
   "/roadmap": ["accounts", "shield", "pocket", "burn"],
   "/templates": ["research"],
@@ -263,6 +264,19 @@ test("the phone app: both pages, the manifest, the service worker and the icons;
   const changelog = textOf((await get("/changelog")).body);
   assert.match(changelog, /0\.7\.0/);
   assert.match(changelog, /Purser in your pocket/);
+});
+
+test("models at cost: the price page, the menu, the roadmap and the changelog", async () => {
+  const page = textOf((await get("/models")).body);
+  for (const m of ["Claude Haiku 5.5", "Claude Sonnet 5.5", "Claude Opus 5.5"]) assert.match(page, new RegExp(m));
+  assert.match(page, /provider's price|provider&#x27;s price/);
+  assert.match(page, /\$0\.10/);
+  assert.match((await get("/")).body, /href="\/models"/, "the Product menu links models at cost");
+  const roadmap = (await get("/roadmap")).body;
+  assert.match(roadmap.split('id="models"')[1].split('id="hire"')[0], /rm-pill--live/, "the models stage is live");
+  const changelog = textOf((await get("/changelog")).body);
+  assert.match(changelog, /0\.9\.0/);
+  assert.match(changelog, /Models at cost/);
 });
 
 test("header menus reach every page group", async () => {

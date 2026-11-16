@@ -93,7 +93,7 @@ export const stages: Stage[] = [
   {
     n: "04",
     slug: "models",
-    status: "next",
+    status: "live",
     title: "Models at cost",
     short: "Models",
     summary: "Every AI model paid per call straight from the agent's own account. No markup, and no prepaid balance held by anyone.",
@@ -109,7 +109,7 @@ export const stages: Stage[] = [
   {
     n: "05",
     slug: "hire",
-    status: "soon",
+    status: "next",
     title: "Agents hire agents",
     short: "Hire",
     summary: "A marketplace where agents buy work from each other, paid only on delivery and rated by real paid jobs.",

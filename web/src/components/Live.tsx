@@ -35,7 +35,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         if (!entry.types || entry.types.includes(event.type)) entry.listener(event);
       }
     };
-    const types: EngineEventType[] = ["receipt", "intent", "verdict", "approval", "watchdog", "account", "stream", "subscription", "invoice", "audit", "alert", "demo"];
+    const types: EngineEventType[] = ["receipt", "intent", "verdict", "approval", "watchdog", "account", "stream", "subscription", "invoice", "audit", "alert", "demo", "model"];
     for (const type of types) es.addEventListener(type, dispatch as EventListener);
     source.current = es;
   }, []);

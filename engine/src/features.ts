@@ -2,6 +2,7 @@
 import "./approvals.ts";
 import "./x402.ts";
 import "./connector.ts";
+import "./models.ts";
 import "./recurring.ts";
 import "./storefront.ts";
 import "./splits.ts";

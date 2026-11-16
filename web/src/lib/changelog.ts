@@ -10,6 +10,21 @@ export interface ChangelogEntry {
 export const changelog: ChangelogEntry[] = [
   {
     date: "2026-11-16",
+    version: "0.9.0",
+    title: "Models at cost",
+    summary: "Every AI model at the provider's own price, paid per call from the agent's own account. No markup and nothing prepaid.",
+    items: [
+      "Claude Haiku 5.5, Sonnet 5.5 and Opus 5.5 through the OpenAI-compatible endpoint, with the agent key it already has.",
+      "Each call is charged at the provider's list price for the tokens it really used, rounded to the millionth of a dollar, with no markup on the model. The price list is public at /models.",
+      "auto:fast, auto:balanced and auto:best pick the cheapest model at that level that is still inside the owner's budgets.",
+      "Before every call the account must be able to pay what it owes plus the most the call can cost, under its rules. If it cannot, the model is never asked.",
+      "Calls settle on chain from the agent's account once they add up to $0.25 or after an hour, one payment per model, so gas never costs more than the call.",
+      "Budgets per model, per day and per task, set by the owner in the books. Cost per model and per task in accounting.",
+      "A new tool in the SDK, MCP server and every plugin: ask a model at cost, with the price of each answer.",
+    ],
+  },
+  {
+    date: "2026-11-16",
     version: "0.8.0",
     title: "Purser plugins",
     summary: "Your agent already has a framework. Now it has a bank account: plugins for the Vercel AI SDK, LangChain and ElizaOS.",

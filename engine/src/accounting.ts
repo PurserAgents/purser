@@ -25,9 +25,16 @@ function line(map: Map<string, { label: string; income: bigint; spend: bigint; c
   map.set(key, cur);
 }
 
+/** Dollars for the books: whole cents as usual, but amounts under a dollar keep their fractions of a cent. */
+const money = (micro: bigint) => {
+  const neg = micro < 0n;
+  const a = neg ? -micro : micro;
+  return (neg ? "-" : "") + (a < 1_000_000n ? fmt(a, 6, 6) : usd(a));
+};
+
 const lines = (m: Map<string, { label: string; income: bigint; spend: bigint; count: number }>): PnlLine[] =>
   [...m.entries()]
-    .map(([key, v]) => ({ key, label: v.label, income: usd(v.income), spend: usd(v.spend), count: v.count, _sort: v.income + v.spend }))
+    .map(([key, v]) => ({ key, label: v.label, income: money(v.income), spend: money(v.spend), count: v.count, _sort: v.income + v.spend }))
     .sort((a, b) => (a._sort > b._sort ? -1 : 1))
     .map(({ _sort, ...l }) => (void _sort, l));
 
@@ -55,6 +62,13 @@ export function pnl(ctx: Ctx, scope: { safes: string[]; safe?: string | null; te
     const modelKey = m ? `${m.provider}/${m.model}` : r.category === "model" && r.service ? r.service : null;
     if (!isIn && modelKey) line(model, modelKey, modelKey, 0n, v);
     if (!isIn && r.task_id) line(task, r.task_id, r.task_id, 0n, v);
+    else if (!isIn && r.category === "model") {
+      // a model settlement pays many calls at once; the calls remember their task
+      const calls = ctx.db
+        .prepare("SELECT task_id, SUM(CAST(cost_micro AS INTEGER)) AS micro FROM model_calls WHERE receipt_id = ? AND task_id IS NOT NULL GROUP BY task_id")
+        .all(r.id) as { task_id: string; micro: number }[];
+      for (const c of calls) line(task, c.task_id, c.task_id, 0n, BigInt(c.micro));
+    }
     if (isIn) {
       const c = r.customer ?? r.counterparty;
       const name = (ctx.db.prepare("SELECT name FROM accounts WHERE safe = ?").get(c) as { name: string } | undefined)?.name ?? c;
@@ -70,15 +84,15 @@ export function pnl(ctx: Ctx, scope: { safes: string[]; safe?: string | null; te
     scope: { safe: scope.safe ? lower(scope.safe) : null, teamId: scope.teamId ?? null } as Pnl["scope"],
     from,
     to,
-    incomeUsd: usd(income),
-    spendUsd: usd(spend),
-    feesUsd: usd(fees),
-    profitUsd: (income - spend - fees < 0n ? "-" : "") + usd(income - spend - fees < 0n ? spend + fees - income : income - spend - fees),
+    incomeUsd: money(income),
+    spendUsd: money(spend),
+    feesUsd: money(fees),
+    profitUsd: money(income - spend - fees),
     byCategory: lines(cat),
     byModel: lines(model),
     byTask: lines(task),
     byCustomer: lines(customer),
-    byDay: [...day.entries()].sort().map(([d, v]) => ({ day: d, incomeUsd: usd(v.income), spendUsd: usd(v.spend) })),
+    byDay: [...day.entries()].sort().map(([d, v]) => ({ day: d, incomeUsd: money(v.income), spendUsd: money(v.spend) })),
   };
 }
 

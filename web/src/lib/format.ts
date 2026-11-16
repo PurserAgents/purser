@@ -46,7 +46,11 @@ function isDollar(token: Token): boolean {
 /** "$1,240.50" for the dollar token, "0.42 ETH" for everything else. */
 export function formatMoney(amount: Units | bigint, token: Token, fractionDigits?: number): string {
   if (isDollar(token)) {
-    const text = formatUnits(amount, token.decimals, fractionDigits ?? 2);
+    const v = typeof amount === "bigint" ? amount : BigInt(amount);
+    const abs = v < 0n ? -v : v;
+    // a model call costs fractions of a cent; show it instead of $0.00
+    const small = fractionDigits === undefined && abs > 0n && abs * 100n < 10n ** BigInt(token.decimals);
+    const text = formatUnits(amount, token.decimals, small ? Math.min(6, token.decimals) : fractionDigits ?? 2);
     return text.startsWith("-") ? "-$" + text.slice(1) : "$" + text;
   }
   return formatUnits(amount, token.decimals, fractionDigits ?? 4) + " " + token.symbol;

@@ -168,9 +168,12 @@ export const docs: DocGroup[] = [
       },
       {
         id: "models",
-        title: "AI models",
+        title: "AI models at cost",
         body: [
-          "Purser exposes an OpenAI-compatible endpoint (`/v1/chat/completions`). Point your agent's model client at it and use the agent key. The owner adds providers: an own API key (the cost is recorded), an x402 provider or one paid per request in USDG (paid from the Safe). Tag a cost to a task with the `X-Purser-Task` header.",
+          "Purser exposes an OpenAI-compatible endpoint (`/v1/chat/completions`). Point your agent's model client at it and use the agent key. Ask for `auto:fast`, `auto:balanced` or `auto:best` and Purser picks the cheapest model at that level, or name one: `purser/claude-haiku-5-5`, `purser/claude-sonnet-5-5`, `purser/claude-opus-5-5`.",
+          "Each call is charged at the provider's own list price for the tokens it used, with no markup on the model price (`GET /v1/models/prices`); the payment that settles the calls carries the usual Purser fee, as every payment does. Before the call Purser checks that the account may pay what it owes plus the most the call can cost under its rules; if not, the model is never asked. Calls settle on chain from the agent's account once they add up to $0.25 or after an hour, one payment per model, each a receipt with the model and the tokens. `GET /v1/models/owed` shows what is unpaid and `POST /v1/models/settle` pays it now.",
+          "The owner caps spend per model per day and per task (`PUT /v1/accounts/{safe}/model-budgets`, or the books in the dashboard). A level request moves on to the next model when one is over budget; a request for that exact model is refused. Tag a cost to a task with the `X-Purser-Task` header.",
+          "The owner can still add their own providers: an own API key (the cost is recorded), an x402 provider or one paid per request in USDG.",
         ],
         code: [{ label: "models.ts", code: modelsSample }],
       },

@@ -56,16 +56,18 @@ export const developerSamples: CodeSample[] = [
 
 export const modelsSample = `import OpenAI from "openai";
 
-// Any OpenAI-compatible client, paid from the agent's account.
+// Any OpenAI-compatible client, paid from the agent's account at the provider's price.
 const models = new OpenAI({
-  baseURL: \`\${process.env.PURSER_ENGINE_URL}/v1\`,
+  baseURL: "https://purseragents.fun/v1",
   apiKey: process.env.PURSER_API_KEY,
 });
 
 const reply = await models.chat.completions.create({
-  model: "the-model-id-your-owner-set-up",
+  model: "auto:fast", // the cheapest model good enough; or auto:balanced, auto:best, purser/claude-opus-5-5
   messages: [{ role: "user", content: "Summarise these filings" }],
-}, { headers: { "X-Purser-Task": "weekly-brief" } });`;
+}, { headers: { "X-Purser-Task": "weekly-brief" } });
+
+console.log(reply.purser.costUsd); // what the call cost, no markup`;
 
 export const merchantSample = `import { Hono } from "hono";
 import { purserPaywall } from "@purseragents/sdk/merchant";

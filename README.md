@@ -16,7 +16,7 @@
   <img alt="Safe 1.4.1" src="https://img.shields.io/badge/Safe-1.4.1%20module-0a0a0b?style=flat-square" />
   <img alt="ERC-8004" src="https://img.shields.io/badge/identity-ERC--8004-0a0a0b?style=flat-square" />
   <img alt="x402" src="https://img.shields.io/badge/payments-x402%20v2-0a0a0b?style=flat-square" />
-  <img alt="Tests" src="https://img.shields.io/badge/tests-453%20passing-17794a?style=flat-square" />
+  <img alt="Tests" src="https://img.shields.io/badge/tests-560%20passing-17794a?style=flat-square" />
 </p>
 
 <p align="center">
@@ -179,8 +179,14 @@ on-chain activity, so every page has something to show.
 
 ## For developers
 
-<a id="plugins"></a>**Plugins** for the agent frameworks, the same eight tools in each: account, rules, check a payment, pay,
-receipts, fetch a paid URL (x402), pay an invoice, and profit and loss.
+<a id="plugins"></a>**Plugins** for the agent frameworks, the same nine tools in each: account, rules, check a payment, pay,
+receipts, fetch a paid URL (x402), ask an AI model at cost, pay an invoice, and profit and loss.
+
+<a id="models"></a>**Models at cost.** Point any OpenAI-compatible client at `https://purseragents.fun/v1` with the agent key and ask for
+`auto:fast`, `auto:balanced` or `auto:best` (or `purser/claude-haiku-5-5`, `purser/claude-sonnet-5-5`, `purser/claude-opus-5-5`).
+Each call is charged at the provider's own list price for the tokens it used, with no markup on the model, and paid on chain from the
+agent's account through its rules: checked before the call, settled once the calls add up to $0.25 or after an hour, one
+payment per model (the usual 0.1% Purser fee applies to that payment). The owner sets budgets per model per day and per task. Prices: `GET /v1/models/prices`.
 
 | Framework | Install | Use |
 |---|---|---|
@@ -333,10 +339,10 @@ advisories on this repository.
 |---|---|
 | Contracts (Foundry): unit, against the real Safe 1.4.1 bytecode | 117 |
 | Contracts (Foundry): fork tests against the live chain's Safe, ERC-8004, USDG, Uniswap and vaults | 13 |
-| Engine | 256 (252 local, 4 fork) |
-| SDK / MCP / CLI | 15 / 4 / 4 |
+| Engine | 331 |
+| SDK / MCP / CLI | 17 / 4 / 4 |
 | Plugins: Vercel AI SDK / LangChain / ElizaOS, each against a local engine | 5 / 5 / 6 |
-| Website smoke test: every route, copy rules, empty states | 46 |
+| Website smoke test: every route, copy rules, empty states | 48 |
 | End to end in headless Chrome with a wallet, on a fork | 10 |
 
 ```sh

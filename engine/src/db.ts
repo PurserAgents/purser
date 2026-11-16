@@ -232,6 +232,9 @@ CREATE TABLE IF NOT EXISTS model_calls (
   completion_tokens INTEGER NOT NULL, cost_micro TEXT NOT NULL, receipt_id TEXT, task_id TEXT, created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS model_budgets (safe TEXT NOT NULL, model TEXT NOT NULL, daily_micro TEXT, per_task_micro TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY (safe, model));
+CREATE INDEX IF NOT EXISTS model_calls_safe ON model_calls (safe, provider, created_at);
+
 CREATE TABLE IF NOT EXISTS account_sets (safe TEXT NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL, on_flag INTEGER NOT NULL, PRIMARY KEY (safe, kind, value));
 
 CREATE TABLE IF NOT EXISTS shield_threats (address TEXT PRIMARY KEY, kind TEXT NOT NULL, hits INTEGER NOT NULL, first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL, first_verdict TEXT, active INTEGER NOT NULL DEFAULT 1);

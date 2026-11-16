@@ -15,6 +15,7 @@ import { submitIntent } from "./intents.ts";
 import { insertReceipt } from "./receipts.ts";
 import { fail, id, lower, now, parseJson, sameAddress, usd, ZERO } from "./util.ts";
 import { network, recordFailedDelivery, recordServiceUse } from "./x402.ts";
+import { chatAtCost, isAtCostModel, modelsConfigured, priceList } from "./models.ts";
 
 // ---------------------------------------------------------------------------------------------------- providers
 
@@ -257,13 +258,22 @@ const zMsg = z.object({ role: z.string(), content: z.any() }).passthrough();
 registerRoutes((app: Hono, ctx: Ctx) => {
   app.get("/v1/models", (c) => {
     const auth = agent(ctx, c, "models");
-    return send(c, { object: "list", data: providers(ctx, auth.safe).flatMap((p) => p.models.map((m) => ({ id: `${p.id}/${m.id}`, object: "model", owned_by: p.id }))) });
+    const own = providers(ctx, auth.safe).flatMap((p) => p.models.map((m) => ({ id: `${p.id}/${m.id}`, object: "model", owned_by: p.id })));
+    const atCost = modelsConfigured() ? priceList().map((m) => ({ id: m.id, object: "model", owned_by: "purser", level: m.level })) : [];
+    return send(c, { object: "list", data: [...atCost, ...own] });
   });
 
   app.post("/v1/chat/completions", async (c) => {
     const auth = agent(ctx, c, "models");
     const b = await body(c, z.object({ model: z.string(), messages: z.array(zMsg).min(1) }).passthrough());
-    const r = await chat(ctx, auth, b as never, { taskId: c.req.header("x-purser-task") ?? null });
+    const taskId = c.req.header("x-purser-task") ?? null;
+    // a model Purser serves at cost, unless the owner added a provider that serves this exact name
+    const ownProvider = providers(ctx, auth.safe).some((p) => b.model.startsWith(`${p.id}/`) || p.models.some((m) => m.id === b.model));
+    if (!ownProvider && isAtCostModel(b.model)) {
+      const r = await chatAtCost(ctx, auth, b as never, { taskId });
+      return send(c, r.body, r.status as never);
+    }
+    const r = await chat(ctx, auth, b as never, { taskId });
     return send(c, r.body, r.status);
   });
 

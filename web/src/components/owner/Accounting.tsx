@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { usd, usdNumber, usdSigned } from "@/lib/format";
+import { usd as usd2, usdNumber, usdSigned } from "@/lib/format";
+import { AT_COST_MODELS } from "@/lib/models";
 import { categoryLabel } from "@/lib/labels";
 import type { Page, Pnl, PnlLine, ReceiptCategory, Team } from "@/lib/types";
 import { DayChart } from "../DayChart";
@@ -9,7 +10,19 @@ import { IconDownload } from "../Icons";
 import { useEngine, useNow } from "../Live";
 import { Card, EmptyState, Loading } from "../ui";
 import { fillDays } from "./AgentDetail";
+import { ModelBudgets } from "./ModelBudgets";
 import { OwnerFrame, busiest, useOwner } from "./Frame";
+
+/** Dollars with whole cents, or four decimals for amounts under a cent so model calls never show as $0.00. */
+const usd = (v: string | null | undefined) => {
+  const n = usdNumber(v);
+  return n !== 0 && Math.abs(n) < 0.01 ? usd2(v, 6).replace(/0+$/, "") : usd2(v);
+};
+
+const modelName = (key: string) => {
+  const id = key.replace(/^model:/, "").replace(/^purser\//, "");
+  return AT_COST_MODELS.find((m) => m.id === id)?.name ?? key.replace(/^model:/, "");
+};
 
 export function Accounting() {
   return (
@@ -122,7 +135,7 @@ function Body() {
           {p ? <Lines lines={p.byCategory} label={(k) => categoryLabel[k as ReceiptCategory] ?? k} empty="No spending in this period" hint="Each payment the agent makes is counted here by kind." /> : <Loading />}
         </Card>
         <Card title="Cost per model">
-          {p ? <Lines lines={p.byModel} label={(k) => k.replace(/^model:/, "")} empty="No model calls in this period" hint="Calls through the model proxy are counted here with their cost." /> : <Loading />}
+          {p ? <Lines lines={p.byModel} label={modelName} empty="No model calls in this period" hint="Model calls at cost, and calls through your own providers, are counted here with their cost." /> : <Loading />}
         </Card>
         <Card title="Cost per task">
           {p ? <Lines lines={p.byTask} label={(k) => k} empty="No tasks tagged yet" hint="Agents tag a cost with taskId or the X-Purser-Task header." /> : <Loading />}
@@ -131,6 +144,8 @@ function Body() {
           {p ? <Lines lines={p.byCustomer} label={(k) => (k.startsWith("0x") && k.length === 42 ? (owner.names[k.toLowerCase()] ?? `${k.slice(0, 6)}...${k.slice(-4)}`) : k)} empty="No income in this period" hint="What each customer paid this agent shows up here." income /> : <Loading />}
         </Card>
       </div>
+
+      {kind === "a" && id ? <ModelBudgets safe={id} /> : null}
     </div>
   );
 }

@@ -38,7 +38,7 @@ describe("accounting: P&L, cost per task and model, revenue per customer, CSV (1
     const p = (await e.get(`/v1/accounts/${safe}/pnl`)).body;
     assert.equal(p.incomeUsd, "30.00");
     assert.equal(p.spendUsd, "8.00");
-    assert.equal(p.feesUsd, "0.00"); // 0.1% of 8 USDG is 0.008, shown to the cent
+    assert.equal(p.feesUsd, "0.008"); // 0.1% of 8 USDG; amounts under a dollar keep their fractions of a cent
     assert.equal(p.profitUsd, "21.99");
     assert.deepEqual(p.byCategory.map((l: any) => l.key).sort(), ["model", "storefront"]);
   });
