@@ -45,6 +45,7 @@ interface Result {
   reason: string | null;
   txHash: string | null;
   won: boolean;
+  returnedTx?: string | null;
 }
 
 const LABEL: Record<Attempt["outcome"], string> = {
@@ -190,6 +191,9 @@ export function RobGame() {
                 )}
                 {result.reason && result.outcome !== "paid" && <p className="small muted">{result.reason}</p>}
                 {result.won && <p className="small">You robbed the agent. The money is in your wallet.</p>}
+                {!result.won && result.outcome === "paid" && (
+                  <p className="small muted">That is one of Ledger&apos;s own vendors, so it was a normal bill, not a win. The money went back to the vault.</p>
+                )}
                 {result.txHash && (
                   <a className="small" href={`${EXPLORER}/tx/${result.txHash}`} target="_blank" rel="noreferrer">
                     See the transaction
