@@ -1,11 +1,11 @@
 {
-  "name": "@purser/cli",
+  "name": "@purseragents/cli",
   "version": "0.1.0",
   "description": "The purser command: accounts, payments, receipts, firewall checks, audit export and verify, test mode.",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "purser": "./dist/index.js"
+    "purser": "dist/index.js"
   },
   "main": "./dist/index.js",
   "files": [
@@ -19,7 +19,7 @@
     "start": "tsx src/index.ts"
   },
   "dependencies": {
-    "@purser/sdk": "file:../sdk",
+    "@purseragents/sdk": "file:../sdk",
     "viem": "2.57.18"
   },
   "devDependencies": {

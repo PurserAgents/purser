@@ -1,0 +1,35 @@
+{
+  "name": "@purseragents/plugin-purser",
+  "version": "0.1.0",
+  "description": "Purser for ElizaOS: give your agent its own bank account, with the owner's rules and a firewall in front of every payment.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist", "images", "README.md"],
+  "keywords": ["plugin", "elizaos", "elizaos-plugins", "agent", "payments", "wallet", "purser", "x402"],
+  "homepage": "https://purseragents.fun/developers",
+  "repository": { "type": "git", "url": "git+https://github.com/PurserAgents/purser.git", "directory": "packages/plugin-purser" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm --prefix ../sdk run build",
+    "test": "tsx --test --test-concurrency=1 test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": { "@elizaos/core": ">=1.0.0" },
+  "dependencies": { "@purseragents/sdk": "file:../sdk" },
+  "devDependencies": {
+    "@elizaos/core": "2.0.5",
+    "@types/node": "^24.0.0",
+    "tsx": "4.23.15",
+    "typescript": "^5.9.0"
+  },
+  "agentConfig": {
+    "pluginType": "elizaos:plugin:1.0.0",
+    "pluginParameters": {
+      "PURSER_API_KEY": { "type": "string", "description": "The agent's Purser API key (prs_...), created by the owner for one account on purseragents.fun", "required": true, "sensitive": true },
+      "PURSER_ENGINE_URL": { "type": "string", "description": "The Purser engine. Default: https://purseragents.fun", "required": false, "sensitive": false }
+    }
+  }
+}

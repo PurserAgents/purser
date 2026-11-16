@@ -1,9 +1,9 @@
-# @purser/mcp
+# @purseragents/mcp
 
 An MCP server (stdio) that gives an AI agent its Purser account as tools.
 
 ```sh
-PURSER_ENGINE_URL=http://localhost:8787 PURSER_API_KEY=prs_... npx @purser/mcp
+PURSER_ENGINE_URL=http://localhost:8787 PURSER_API_KEY=prs_... npx @purseragents/mcp
 ```
 
 Tools: `purser_account`, `purser_rules`, `purser_pay`, `purser_check_payment`, `purser_receipts`,

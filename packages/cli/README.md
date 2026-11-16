@@ -1,4 +1,4 @@
-# @purser/cli
+# @purseragents/cli
 
 The `purser` command. Run `purser --help` for every command.
 

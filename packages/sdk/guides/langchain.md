@@ -1,35 +1,30 @@
 # Purser with LangChain (JavaScript)
 
 ```sh
-npm install @langchain/core @langchain/langgraph zod @purser/sdk
+npm install langchain @langchain/core @purseragents/langchain
 ```
 
 ```ts
-import { tool } from "@langchain/core/tools";
-import { z } from "zod";
-import { Purser, usdg } from "@purser/sdk";
+import { createAgent } from "langchain";
+import { purserTools } from "@purseragents/langchain";
 
-const purser = new Purser({ baseUrl: process.env.PURSER_ENGINE_URL!, apiKey: process.env.PURSER_API_KEY });
+const agent = createAgent({
+  model: "anthropic:claude-sonnet-5-5",
+  tools: purserTools({ apiKey: process.env.PURSER_API_KEY }),
+});
 
-export const purserPay = tool(
-  async ({ to, amountUsdg, memo, context }) => {
-    const r = await purser.pay({ to, amount: usdg(amountUsdg), memo, trigger: context });
-    return r.intent.status === "executed" ? `Paid ${r.intent.money?.display}.` : `Not paid (${r.intent.status}): ${r.verdict.summary}`;
-  },
-  {
-    name: "purser_pay",
-    description: "Pay from the agent's Purser account within the owner's rules.",
-    schema: z.object({ to: z.string(), amountUsdg: z.string(), memo: z.string(), context: z.string().describe("The text that led to this payment") }),
-  },
-);
-
-export const purserFetch = tool(
-  async ({ url, maxUsdg }) => (await purser.x402Fetch(url, { maxAmount: usdg(maxUsdg) })).body,
-  { name: "purser_fetch", description: "Fetch a URL that may charge over x402.", schema: z.object({ url: z.string(), maxUsdg: z.string() }) },
-);
+await agent.invoke({ messages: [{ role: "user", content: "Pay the data vendor 2.50 USDG for today's report." }] });
 ```
 
-Pass the tools to your agent, such as `createReactAgent({ llm, tools: [purserPay, purserFetch] })` from
-`@langchain/langgraph/prebuilt`. LangChain agents that support MCP can also use `@purser/mcp` directly.
+`purserTools()` returns eight LangChain tools: `purser_account`, `purser_rules`, `purser_check_payment`, `purser_pay`,
+`purser_receipts`, `purser_paid_fetch`, `purser_pay_invoice` and `purser_profit`. They work anywhere LangChain tools
+do: `createAgent`, LangGraph's `ToolNode`, or `model.bindTools(tools)`. `new PurserToolkit({ apiKey }).getTools()`
+gives the same tools for code that expects a toolkit.
+
+Options: `readOnly: true` leaves out the tools that move money, `only: [...]` keeps the tools you name, and `baseUrl`
+points at your own engine.
+
+A payment the rules or the firewall refuse comes back to the model as "Blocked." with the reasons and "Nothing was
+paid", never as an exception. LangChain agents that speak MCP can also use `@purseragents/mcp` directly.
 
 The full file is `packages/sdk/examples/langchain.ts` in the repository.

@@ -17,8 +17,9 @@ const DIR = join(process.cwd(), "..", "packages", "sdk", "guides");
 export const guideOrder = [
   { slug: "claude-agent-sdk", name: "Claude Agent SDK", summary: "The MCP server next to your agent, with the tools allowed by name." },
   { slug: "openai-agents-sdk", name: "OpenAI Agents SDK", summary: "Purser as MCP tools, and model calls paid from the same account." },
-  { slug: "langchain", name: "LangChain", summary: "Pay and x402 fetch as LangChain tools, or the MCP server." },
-  { slug: "elizaos", name: "ElizaOS", summary: "A pay action in a plugin, with the whole message read by the firewall." },
+  { slug: "vercel-ai-sdk", name: "Vercel AI SDK", summary: "npm install @purseragents/ai-sdk: eight tools as a ToolSet for generateText, streamText and agents." },
+  { slug: "langchain", name: "LangChain", summary: "npm install @purseragents/langchain: eight tools for createAgent, LangGraph and bindTools." },
+  { slug: "elizaos", name: "ElizaOS", summary: "npm install @purseragents/plugin-purser: eight actions, with the whole message read by the firewall." },
 ];
 
 function read(name: string): string | null {

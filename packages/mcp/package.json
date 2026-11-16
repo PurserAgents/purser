@@ -1,11 +1,11 @@
 {
-  "name": "@purser/mcp",
+  "name": "@purseragents/mcp",
   "version": "0.1.0",
   "description": "MCP server that gives an AI agent its Purser account: pay, check, balance, rules, receipts, sell, invoices.",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "purser-mcp": "./dist/index.js"
+    "purser-mcp": "dist/index.js"
   },
   "main": "./dist/index.js",
   "files": [
@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
-    "@purser/sdk": "file:../sdk",
+    "@purseragents/sdk": "file:../sdk",
     "zod": "4.6.7",
     "viem": "2.57.18"
   },

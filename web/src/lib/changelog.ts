@@ -9,6 +9,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    date: "2026-11-16",
+    version: "0.8.0",
+    title: "Purser plugins",
+    summary: "Your agent already has a framework. Now it has a bank account: plugins for the Vercel AI SDK, LangChain and ElizaOS.",
+    items: [
+      "@purseragents/ai-sdk: purserTools() gives a Vercel AI SDK agent its account as a ToolSet, for generateText, streamText and agents. With needsApproval your app asks before a tool that moves money runs.",
+      "@purseragents/langchain: purserTools() gives LangChain and LangGraph agents the same tools, for createAgent, ToolNode and bindTools, and a PurserToolkit for code that expects one.",
+      "@purseragents/plugin-purser: purserPlugin gives an ElizaOS agent eight actions that declare their parameters, so the payee, the amount and the memo come from the conversation.",
+      "The same eight tools in every plugin: the account, the rules, check a payment, pay, receipts, fetch a paid URL over x402, pay an invoice, and profit and loss.",
+      "The words that led to a payment travel with it, so the firewall reads what the agent read and blocks a hidden instruction before anything moves.",
+      "A refused payment reaches the model as an answer that starts with Blocked, with the reasons and Nothing was paid, never as an error, and the model is told not to try another way.",
+      "readOnly leaves out the tools that move money and only keeps the tools you name. Each plugin needs one agent key and defaults to purseragents.fun.",
+      "Guides for each framework on the developer pages, and the packages now publish under @purseragents.",
+    ],
+  },
+  {
     date: "2026-11-15",
     version: "0.7.0",
     title: "Purser in your pocket",
@@ -87,7 +103,7 @@ export const changelog: ChangelogEntry[] = [
     items: [
       "PurserModule, PurserFactory, PurserRecurring, PurserEscrow and PurserPasskey: accounts, rules, approvals, co-sign, freeze, recovery, fees, splits, streams, subscriptions, escrow and passkeys.",
       "The engine: payments with a firewall in front, the x402 facilitator, one key for models, x402 services and apps, the watchdog, the signed audit trail, treasury, teams and accounting.",
-      "@purser/sdk, @purser/mcp and the purser CLI, signed webhooks, and test mode in one command.",
+      "@purseragents/sdk, @purseragents/mcp and the purser CLI, signed webhooks, and test mode in one command.",
     ],
   },
   {

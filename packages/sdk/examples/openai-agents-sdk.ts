@@ -3,7 +3,7 @@
 
 import { Agent, run, tool } from "@openai/agents";
 import { z } from "zod";
-import { Purser, usdg } from "@purser/sdk";
+import { Purser, usdg } from "@purseragents/sdk";
 
 const purser = new Purser({ baseUrl: process.env.PURSER_ENGINE_URL!, apiKey: process.env.PURSER_API_KEY });
 

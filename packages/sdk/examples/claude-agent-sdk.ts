@@ -9,7 +9,7 @@ for await (const message of query({
     mcpServers: {
       purser: {
         command: "npx",
-        args: ["-y", "@purser/mcp"],
+        args: ["-y", "@purseragents/mcp"],
         env: { PURSER_ENGINE_URL: process.env.PURSER_ENGINE_URL!, PURSER_API_KEY: process.env.PURSER_API_KEY! },
       },
     },

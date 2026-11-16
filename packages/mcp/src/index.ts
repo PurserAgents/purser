@@ -2,13 +2,13 @@
 /**
  * Purser MCP server (stdio). Gives an AI agent its own Purser account as tools.
  *
- *   PURSER_ENGINE_URL=http://localhost:8787 PURSER_API_KEY=prs_... npx @purser/mcp
+ *   PURSER_ENGINE_URL=http://localhost:8787 PURSER_API_KEY=prs_... npx @purseragents/mcp
  *
  * Every payment goes through the account's rules and the firewall; a blocked payment is reported with its reasons.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { Purser, type PayResult, type Verdict } from "@purser/sdk";
+import { Purser, type PayResult, type Verdict } from "@purseragents/sdk";
 import { z } from "zod";
 import { formatUnits, parseUnits } from "./units.js";
 

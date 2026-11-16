@@ -1,11 +1,11 @@
 /**
  * Code shown on the landing page, the developer page and the docs. Written against the real packages:
- * @purser/sdk (packages/sdk/src/client.ts), @purser/mcp (packages/mcp, eleven tools) and the purser CLI
+ * @purseragents/sdk (packages/sdk/src/client.ts), @purseragents/mcp (packages/mcp, eleven tools) and the purser CLI
  * (packages/cli/src/index.ts). Keep them in step when those change.
  */
 import type { CodeSample } from "@/components/CodeTabs";
 
-export const sdkSample = `import { Purser, usdg } from "@purser/sdk";
+export const sdkSample = `import { Purser, usdg } from "@purseragents/sdk";
 
 const purser = new Purser({
   baseUrl: process.env.PURSER_ENGINE_URL,
@@ -26,7 +26,7 @@ export const mcpSample = `{
   "mcpServers": {
     "purser": {
       "command": "npx",
-      "args": ["-y", "@purser/mcp"],
+      "args": ["-y", "@purseragents/mcp"],
       "env": {
         "PURSER_ENGINE_URL": "https://your-engine",
         "PURSER_API_KEY": "prs_..."
@@ -68,7 +68,7 @@ const reply = await models.chat.completions.create({
 }, { headers: { "X-Purser-Task": "weekly-brief" } });`;
 
 export const merchantSample = `import { Hono } from "hono";
-import { purserPaywall } from "@purser/sdk/merchant";
+import { purserPaywall } from "@purseragents/sdk/merchant";
 
 const app = new Hono();
 
@@ -95,7 +95,7 @@ export const embedSample = `<script src="https://your-engine/embed.js"
         data-amount="12.00"
         data-token="USDG" async></script>`;
 
-export const webhookSample = `import { verifyWebhook } from "@purser/sdk";
+export const webhookSample = `import { verifyWebhook } from "@purseragents/sdk";
 
 // Every delivery is signed. Reject anything that does not verify.
 const ok = await verifyWebhook(process.env.PURSER_WEBHOOK_SECRET, req.headers["purser-signature"], rawBody);
@@ -130,3 +130,49 @@ cd engine && npm run testmode -- --fork  # a fork of the live chain
 
 # Or from anywhere in a checkout:
 purser testmode --fork`;
+
+/** The framework plugins (packages/ai-sdk, packages/langchain, packages/plugin-purser): the same eight tools in each. */
+export const aiSdkPluginSample = `import { generateText, stepCountIs } from "ai";
+import { purserTools } from "@purseragents/ai-sdk";
+
+const { text } = await generateText({
+  model,
+  tools: purserTools({ apiKey: process.env.PURSER_API_KEY }),
+  stopWhen: stepCountIs(5),
+  prompt: "Pay the data vendor 2.50 USDG for today's report.",
+});`;
+
+export const langchainPluginSample = `import { createAgent } from "langchain";
+import { purserTools } from "@purseragents/langchain";
+
+const agent = createAgent({
+  model: "anthropic:claude-sonnet-5-5",
+  tools: purserTools({ apiKey: process.env.PURSER_API_KEY }),
+});
+
+await agent.invoke({
+  messages: [{ role: "user", content: "Pay the data vendor 2.50 USDG for today's report." }],
+});`;
+
+export const elizaPluginSample = `import { purserPlugin } from "@purseragents/plugin-purser";
+
+export const character = {
+  name: "Ops",
+  plugins: [purserPlugin],
+  settings: { secrets: { PURSER_API_KEY: process.env.PURSER_API_KEY } },
+};
+
+// Actions: PURSER_ACCOUNT, PURSER_RULES, PURSER_CHECK_PAYMENT, PURSER_PAY,
+// PURSER_RECEIPTS, PURSER_PAID_FETCH, PURSER_PAY_INVOICE, PURSER_PROFIT`;
+
+export const pluginSamples: CodeSample[] = [
+  { label: "Vercel AI SDK", code: aiSdkPluginSample },
+  { label: "LangChain", code: langchainPluginSample },
+  { label: "ElizaOS", code: elizaPluginSample },
+];
+
+export const plugins = [
+  { name: "Vercel AI SDK", pkg: "@purseragents/ai-sdk", guide: "vercel-ai-sdk", gives: "purserTools(), a ToolSet for generateText, streamText and agents" },
+  { name: "LangChain", pkg: "@purseragents/langchain", guide: "langchain", gives: "purserTools(), tools for createAgent, LangGraph and bindTools" },
+  { name: "ElizaOS", pkg: "@purseragents/plugin-purser", guide: "elizaos", gives: "purserPlugin, eight actions that fill in their own parameters" },
+] as const;

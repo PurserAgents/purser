@@ -1,9 +1,9 @@
-# @purser/sdk
+# @purseragents/sdk
 
 TypeScript SDK for Purser: a bank account for your AI agent, on Robinhood Chain.
 
 ```ts
-import { Purser, usdg } from "@purser/sdk";
+import { Purser, usdg } from "@purseragents/sdk";
 
 const purser = new Purser({ baseUrl: process.env.PURSER_ENGINE_URL!, apiKey: process.env.PURSER_API_KEY });
 const r = await purser.pay({ to: "0x...", amount: usdg("2.50"), memo: "data report", trigger: "the request text" });
@@ -17,8 +17,8 @@ if (r.intent.status === "blocked") console.log(r.verdict.summary, r.verdict.reas
 - Live events: `purser.events(e => ..., { safe })` (Server-Sent Events).
 - Webhooks: `verifyWebhook(secret, header, rawBody)`.
 - Self-held agent keys: `signPayIntent` / `signCallIntent`, then `purser.submitIntent(...)`.
-- Merchants: `@purser/sdk/merchant` has `purserPaywall` (Hono) and `purserPaywallExpress` for x402.
-- The API types are in `@purser/sdk/schema`.
+- Merchants: `@purseragents/sdk/merchant` has `purserPaywall` (Hono) and `purserPaywallExpress` for x402.
+- The API types are in `@purseragents/sdk/schema`.
 
 Guides for the Claude Agent SDK, the OpenAI Agents SDK, LangChain and ElizaOS are in `guides/`.
 

@@ -1,7 +1,7 @@
 /**
- * @purser/sdk: a bank account for your AI agent, on Robinhood Chain.
+ * @purseragents/sdk: a bank account for your AI agent, on Robinhood Chain.
  *
- *   import { Purser, usdg } from "@purser/sdk";
+ *   import { Purser, usdg } from "@purseragents/sdk";
  *   const purser = new Purser({ baseUrl: "http://localhost:8787", apiKey: process.env.PURSER_API_KEY });
  *   const r = await purser.pay({ to: "0x...", amount: usdg("2.50"), memo: "data report" });
  *   if (r.intent.status === "blocked") console.log(r.verdict.summary);
@@ -15,6 +15,7 @@ export * from "./eip712.js";
 export * from "./chain.js";
 export * from "./x402.js";
 export { purserModuleAbi, purserFactoryAbi, purserRecurringAbi, purserEscrowAbi, purserPasskeyAbi, safeAbi, erc20Abi, erc4626Abi } from "./abi.js";
+export * from "./tools.js";
 export type * from "./schema.js";
 
 /** USDG amount in base units (6 decimals): usdg("2.50") === 2500000n. */

@@ -23,7 +23,8 @@
   <a href="docs/ARCHITECTURE.md">Architecture</a> ·
   <a href="docs/API.md">API</a> ·
   <a href="packages/sdk">SDK</a> ·
-  <a href="packages/mcp">MCP</a>
+  <a href="packages/mcp">MCP</a> ·
+  <a href="#plugins">Plugins</a>
 </p>
 
 <p align="center">
@@ -178,10 +179,22 @@ on-chain activity, so every page has something to show.
 
 ## For developers
 
+<a id="plugins"></a>**Plugins** for the agent frameworks, the same eight tools in each: account, rules, check a payment, pay,
+receipts, fetch a paid URL (x402), pay an invoice, and profit and loss.
+
+| Framework | Install | Use |
+|---|---|---|
+| Vercel AI SDK | `npm i @purseragents/ai-sdk` | `generateText({ model, tools: purserTools({ apiKey }) })` |
+| LangChain, LangGraph | `npm i @purseragents/langchain` | `createAgent({ model, tools: purserTools({ apiKey }) })` |
+| ElizaOS | `npm i @purseragents/plugin-purser` | `plugins: [purserPlugin]` with `PURSER_API_KEY` in the character's secrets |
+
+The words that led to a payment travel with it, so the firewall reads what the agent read. A refused payment reaches
+the model as an answer that starts with "Blocked." and the reasons, never as an exception.
+
 **SDK**
 
 ```ts
-import { Purser, usdg } from "@purser/sdk";
+import { Purser, usdg } from "@purseragents/sdk";
 
 const purser = new Purser({
   baseUrl: process.env.PURSER_ENGINE_URL,
@@ -206,8 +219,8 @@ const { items } = await purser.accounts.receipts(paid.intent.safe, { limit: 10 }
   "mcpServers": {
     "purser": {
       "command": "npx",
-      "args": ["-y", "@purser/mcp"],
-      "env": { "PURSER_ENGINE_URL": "https://your-engine", "PURSER_API_KEY": "prs_..." }
+      "args": ["-y", "@purseragents/mcp"],
+      "env": { "PURSER_ENGINE_URL": "https://purseragents.fun", "PURSER_API_KEY": "prs_..." }
     }
   }
 }
@@ -230,10 +243,10 @@ purser audit export > audit.jsonl && purser audit verify audit.jsonl
 **Models**: any OpenAI-compatible client works against `PURSER_ENGINE_URL/v1`, paid from the agent's account and
 recorded per task.
 
-**Merchants**: price any endpoint with `purserPaywall` from `@purser/sdk/merchant` (Hono and Express).
+**Merchants**: price any endpoint with `purserPaywall` from `@purseragents/sdk/merchant` (Hono and Express).
 
-Guides with working examples for the **Claude Agent SDK**, **OpenAI Agents SDK**, **LangChain** and **ElizaOS** are
-in [`packages/sdk/guides`](packages/sdk/guides).
+Guides for the **Claude Agent SDK**, **OpenAI Agents SDK**, **Vercel AI SDK**, **LangChain** and **ElizaOS** are in
+[`packages/sdk/guides`](packages/sdk/guides).
 
 **HTTP API**: 137 endpoints plus live updates over Server-Sent Events, every one documented with a real response in
 [`docs/API.md`](docs/API.md). Owner actions come back as transactions for the owner's wallet to sign; the engine
@@ -291,6 +304,9 @@ engine/         Node + TypeScript: API (JSON + SSE), indexer, firewall, watchdog
 packages/sdk/   TypeScript SDK, the shared API schema, merchant middleware, framework guides and examples
 packages/mcp/   MCP server for agents (stdio), eleven tools
 packages/cli/   the `purser` command
+packages/ai-sdk/          Vercel AI SDK plugin
+packages/langchain/       LangChain and LangGraph tools
+packages/plugin-purser/   ElizaOS plugin
 web/            the website and owner dashboard (Next.js)
 docs/           ARCHITECTURE, API, DESIGN
 ```
@@ -318,14 +334,16 @@ advisories on this repository.
 | Contracts (Foundry): unit, against the real Safe 1.4.1 bytecode | 117 |
 | Contracts (Foundry): fork tests against the live chain's Safe, ERC-8004, USDG, Uniswap and vaults | 13 |
 | Engine | 256 (252 local, 4 fork) |
-| SDK / MCP / CLI | 7 / 4 / 4 |
-| Website smoke test: every route, copy rules, empty states | 42 |
+| SDK / MCP / CLI | 15 / 4 / 4 |
+| Plugins: Vercel AI SDK / LangChain / ElizaOS, each against a local engine | 5 / 5 / 6 |
+| Website smoke test: every route, copy rules, empty states | 46 |
 | End to end in headless Chrome with a wallet, on a fork | 10 |
 
 ```sh
 cd contracts && forge test              # RPC_URL= forge test skips the fork tests
 cd engine && npm install && npm test
 cd web && npm install && npm test
+cd packages/ai-sdk && npm install && npm test   # also langchain, plugin-purser, sdk, mcp, cli
 ```
 
 ## Verified on Robinhood Chain

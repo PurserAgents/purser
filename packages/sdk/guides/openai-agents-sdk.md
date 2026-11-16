@@ -3,13 +3,13 @@
 Wrap the Purser SDK calls the agent needs as tools.
 
 ```sh
-npm install @openai/agents zod @purser/sdk
+npm install @openai/agents zod @purseragents/sdk
 ```
 
 ```ts
 import { Agent, run, tool } from "@openai/agents";
 import { z } from "zod";
-import { Purser, usdg } from "@purser/sdk";
+import { Purser, usdg } from "@purseragents/sdk";
 
 const purser = new Purser({ baseUrl: process.env.PURSER_ENGINE_URL!, apiKey: process.env.PURSER_API_KEY });
 

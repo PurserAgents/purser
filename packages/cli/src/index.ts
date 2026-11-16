@@ -27,7 +27,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { Purser, PurserError, type PayResult, type Verdict } from "@purser/sdk";
+import { Purser, PurserError, type PayResult, type Verdict } from "@purseragents/sdk";
 import { formatUnits, parseUnits } from "viem";
 
 const { values: flags, positionals } = parseArgs({

@@ -12,6 +12,7 @@ import {
   merchantSample,
   modelsSample,
   ownerSample,
+  pluginSamples,
   sdkSample,
   sellSample,
   testModeSample,
@@ -312,19 +313,28 @@ export const docs: DocGroup[] = [
   {
     id: "developers",
     title: "Developers",
-    intro: "The SDK, the MCP server, the CLI and the API.",
+    intro: "The framework plugins, the SDK, the MCP server, the CLI and the API.",
     sections: [
+      {
+        id: "plugins",
+        title: "Framework plugins",
+        body: [
+          "One package per framework: `@purseragents/ai-sdk` for the Vercel AI SDK, `@purseragents/langchain` for LangChain and LangGraph, and `@purseragents/plugin-purser` for ElizaOS. Each gives the agent the same eight tools: account, rules, check a payment, pay, receipts, fetch a paid URL (x402), pay an invoice, and profit and loss.",
+          "Each needs the agent key the owner created for one account (`PURSER_API_KEY`); the engine defaults to purseragents.fun. A payment the rules or the firewall refuse comes back to the model as an answer that starts with Blocked, with the reasons, never as an error.",
+        ],
+        code: pluginSamples,
+      },
       {
         id: "sdk",
         title: "SDK",
-        body: ["`@purser/sdk` is a typed client for every engine area: paying, x402, models, streams, the storefront, invoices, the treasury, receipts, owner transactions, live events and webhook checks."],
+        body: ["`@purseragents/sdk` is a typed client for every engine area: paying, x402, models, streams, the storefront, invoices, the treasury, receipts, owner transactions, live events and webhook checks."],
         code: [{ label: "agent.ts", code: sdkSample }],
       },
       {
         id: "mcp",
         title: "MCP server",
         body: [
-          "`@purser/mcp` gives an agent eleven tools over stdio: account, rules, pay, check a payment, receipts, x402 fetch, sell, services, invoice, pay an invoice, and profit and loss.",
+          "`@purseragents/mcp` gives an agent eleven tools over stdio: account, rules, pay, check a payment, receipts, x402 fetch, sell, services, invoice, pay an invoice, and profit and loss.",
         ],
         code: [{ label: "mcp.json", code: mcpSample }],
       },
@@ -352,7 +362,7 @@ export const docs: DocGroup[] = [
         id: "guides",
         title: "Framework guides",
         body: [
-          "Guides for the Claude Agent SDK, the OpenAI Agents SDK, LangChain and ElizaOS show how to hand the agent its key and tools. They are on the developer pages."
+          "Guides for the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, LangChain and ElizaOS show how to hand the agent its key and tools. They are on the developer pages."
         ],
       },
       {

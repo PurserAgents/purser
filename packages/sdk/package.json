@@ -1,5 +1,5 @@
 {
-  "name": "@purser/sdk",
+  "name": "@purseragents/sdk",
   "version": "0.1.0",
   "description": "TypeScript SDK for Purser: a bank account for your AI agent on Robinhood Chain.",
   "license": "MIT",

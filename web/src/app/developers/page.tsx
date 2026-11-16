@@ -4,11 +4,11 @@ import { CodeTabs } from "@/components/CodeTabs";
 import { IconArrowRight, IconBell, IconCpu, IconStore, IconTerminal } from "@/components/Icons";
 import { PageHead } from "@/components/ui";
 import { guideOrder } from "@/lib/guides";
-import { apiSample, developerSamples, merchantSample, modelsSample, sellSample, testModeSample, webhookSample } from "@/lib/snippets";
+import { apiSample, developerSamples, merchantSample, modelsSample, pluginSamples, plugins, sellSample, testModeSample, webhookSample } from "@/lib/snippets";
 
 export const metadata: Metadata = {
-  title: "SDK, MCP and CLI",
-  description: "Give an agent its Purser account in code: the TypeScript SDK, the MCP server, the CLI, the model proxy, signed webhooks and test mode.",
+  title: "Plugins, SDK, MCP and CLI",
+  description: "Give an agent its Purser account in code: plugins for the Vercel AI SDK, LangChain and ElizaOS, the TypeScript SDK, the MCP server, the CLI, the model proxy, signed webhooks and test mode.",
 };
 
 const tools = [
@@ -28,7 +28,7 @@ const tools = [
 export default function DevelopersPage() {
   return (
     <>
-      <PageHead eyebrow="Developers" title="Give an agent its account in code." lead="A TypeScript SDK, an MCP server and a CLI on one engine API. The same rules and the same firewall apply whichever one the agent uses." />
+      <PageHead eyebrow="Developers" title="Give an agent its account in code." lead="Plugins for the Vercel AI SDK, LangChain and ElizaOS, a TypeScript SDK, an MCP server and a CLI on one engine API. The same rules and the same firewall apply whichever one the agent uses." />
       <div className="container page-body">
         <div className="dash" style={{ gap: 64 }}>
           <section className="split split--even" id="sdk">
@@ -36,9 +36,32 @@ export default function DevelopersPage() {
               <span className="eyebrow">Start</span>
               <h2 className="h3">One key, three ways in</h2>
               <p className="muted">The owner creates an agent key for one account in the dashboard. The agent uses it with the SDK, as MCP tools, or from the terminal. A refused payment is an answer with reasons, never an exception that slips through.</p>
-              <code className="endpoint">npm install @purser/sdk</code>
+              <code className="endpoint">npm install @purseragents/sdk</code>
             </div>
             <CodeTabs samples={developerSamples} title="Purser developer tools" />
+          </section>
+
+          <section className="split split--even" id="plugins">
+            <div className="stack">
+              <span className="eyebrow">Plugins</span>
+              <h2 className="h3">Your framework, a few lines</h2>
+              <p className="muted">One package per framework, the same eight tools in each: the account, the rules, check a payment, pay, receipts, fetch a paid URL, pay an invoice, and profit and loss. A payment the rules or the firewall refuse reaches the model as an answer with the reasons, so the agent tells the user instead of trying another way.</p>
+              <ul className="stack" style={{ gap: 10, listStyle: "none", padding: 0, margin: 0 }}>
+                {plugins.map((p) => (
+                  <li key={p.pkg} className="stack" style={{ gap: 2 }}>
+                    <code className="endpoint">npm install {p.pkg}</code>
+                    <span className="small muted">
+                      {p.name}: {p.gives}.{" "}
+                      <Link href={`/developers/guides/${p.guide}`} className="link-arrow small">
+                        Guide
+                        <IconArrowRight size={14} />
+                      </Link>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <CodeTabs samples={pluginSamples} title="Purser plugins" />
           </section>
 
           <section className="dash" id="mcp" aria-labelledby="mcp-h">
@@ -60,7 +83,7 @@ export default function DevelopersPage() {
                   Framework guides
                   <IconArrowRight size={14} />
                 </Link>
-                <span className="small muted">Claude Agent SDK, OpenAI Agents SDK, LangChain, ElizaOS</span>
+                <span className="small muted">Claude Agent SDK, OpenAI Agents SDK, Vercel AI SDK, LangChain, ElizaOS</span>
               </li>
             </ul>
           </section>

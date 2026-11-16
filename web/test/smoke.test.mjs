@@ -148,7 +148,7 @@ const docIds = [
   "storefront", "pay-button", "splits", "invoices",
   "firewall", "shield", "watchdog", "audit-trail",
   "treasury", "teams", "accounting",
-  "sdk", "mcp", "cli", "webhooks", "api", "guides", "test-mode",
+  "plugins", "sdk", "mcp", "cli", "webhooks", "api", "guides", "test-mode",
   "directory", "economy", "templates", "leaderboard",
 ];
 
@@ -166,10 +166,11 @@ const routes = {
   "/leaderboard": [],
   [`/agents/${SAFE}`]: ["store"],
   "/docs": docIds,
-  "/developers": ["sdk", "mcp", "models", "sell", "webhooks", "test-mode"],
+  "/developers": ["sdk", "plugins", "mcp", "models", "sell", "webhooks", "test-mode"],
   "/developers/guides": [],
   "/developers/guides/claude-agent-sdk": [],
   "/developers/guides/openai-agents-sdk": [],
+  "/developers/guides/vercel-ai-sdk": [],
   "/developers/guides/langchain": [],
   "/developers/guides/elizaos": [],
   "/changelog": [],
@@ -192,6 +193,7 @@ const forbidden = [
   [/—/, "em dash"],
   [/[←-⇿✀-➿⬀-⯿\u{1f000}-\u{1faff}☀-⛿✅✓✔]/u, "arrow, emoji or symbol character"],
   [/memecoin/i, "the word memecoin"],
+  [/\b(Factor|Axon|Tinker|Quaestor|Pushd)\b/, "another project's name"],
   [/nothing invented|verify it yourself/i, "a defensive phrase"],
   [/lorem ipsum|coming soon\.\.\.|TODO/i, "placeholder text"],
 ];

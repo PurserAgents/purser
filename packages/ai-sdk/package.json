@@ -1,0 +1,28 @@
+{
+  "name": "@purseragents/ai-sdk",
+  "version": "0.1.0",
+  "description": "Purser for the Vercel AI SDK: give your agent its own bank account, with the owner's rules and a firewall in front of every payment.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
+  "keywords": ["ai", "ai-sdk", "vercel", "tools", "agent", "payments", "purser", "x402"],
+  "homepage": "https://purseragents.fun/developers",
+  "repository": { "type": "git", "url": "git+https://github.com/PurserAgents/purser.git", "directory": "packages/ai-sdk" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm --prefix ../sdk run build",
+    "test": "tsx --test --test-concurrency=1 test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": { "ai": ">=6.0.0" },
+  "dependencies": { "@purseragents/sdk": "file:../sdk" },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "ai": "7.0.173",
+    "tsx": "4.23.15",
+    "typescript": "^5.9.0"
+  }
+}
