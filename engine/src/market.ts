@@ -26,16 +26,22 @@ import { kvGet, kvSet } from "./db.ts";
 import { registerTask } from "./engine.ts";
 import { readHireRule, writeHireRule } from "./hireRules.ts";
 import { onExtension } from "./indexer.ts";
-import { createInvoice, escrowCallAsAgent, escrowDone, fundInvoice, invoiceRow, jobOf, relayEscrow, type InvoiceRow } from "./invoices.ts";
+import { createInvoice, escrowCallAsAgent, escrowDone, fundInvoice, invoiceRow, jobOf, minInvoice, relayEscrow, setStatus, type InvoiceRow } from "./invoices.ts";
 import { authAgent, authOwner } from "./keys.ts";
 import { checkPolicy } from "./policy.ts";
 import { checkSafe } from "./proof.ts";
+import { groups, ownersOf } from "./shield.ts";
 import { getIntentRow } from "./receipts.ts";
 import { listServices } from "./storefront.ts";
 import { fail, id, lower, MAX_U128, now, parseJson, sameAddress, ZERO } from "./util.ts";
 
 /** How long the owner has to approve a hire above the approval threshold. The seller's clock starts after it. */
 export const APPROVAL_WINDOW = 24 * 3600;
+/** Hires an account may start in an hour, and listings it may create in a day. */
+const HIRES_PER_HOUR = 30;
+const LISTINGS_PER_DAY = 20;
+/** A keeper retry time that never comes: the payout is not the engine's to relay. */
+const KEEPER_NEVER = 9_999_999_999;
 const ESCROW_RELEASED = 4;
 
 interface ListingRow {
@@ -85,7 +91,8 @@ const publicName = (ctx: Ctx, safe: string) => {
 const sellerName = (ctx: Ctx, safe: string) => accountRow(ctx, safe)?.name ?? null;
 
 function statusOf(ctx: Ctx, inv: InvoiceRow, j: JobRow): JobStatus {
-  if (inv.status !== "open") return inv.status;
+  // a closed invoice still tells why: the hire was blocked, or never ran
+  if (inv.status !== "open" && inv.status !== "cancelled") return inv.status;
   const it = j.intent_id ? getIntentRow(ctx, j.intent_id) : undefined;
   switch (it?.status) {
     case "blocked":
@@ -115,6 +122,8 @@ function jobView(ctx: Ctx, j: JobRow): Job {
     seller: j.seller as Address,
     sellerName: sellerName(ctx, j.seller),
     arbiter: (inv.arbiter as Address) ?? null,
+    // the escrow job's own terms: linking a funded job requires its arbiter and review window to be these
+    reviewSeconds: inv.review_period,
     money: ctx.tokens.money(inv.token, BigInt(inv.amount)),
     status: statusOf(ctx, inv, j),
     invoiceId: inv.id,
@@ -147,6 +156,7 @@ interface StatRow {
   listing_id: string;
   seller: string;
   status: string;
+  arbiter: string | null;
   funded_at: number | null;
   delivered_at: number | null;
   stars: number | null;
@@ -156,8 +166,20 @@ interface StatRow {
 /** Every job between two different owners, with its escrow status. The source of all public numbers. */
 function statRows(ctx: Ctx, where = "", args: unknown[] = []): StatRow[] {
   return ctx.db
-    .prepare(`SELECT j.listing_id, j.seller, i.status, j.funded_at, j.delivered_at, j.stars, i.amount FROM jobs j JOIN invoices i ON i.id = j.invoice_id WHERE j.same_owner = 0 ${where}`)
+    .prepare(`SELECT j.listing_id, j.seller, i.status, i.arbiter, j.funded_at, j.delivered_at, j.stars, i.amount FROM jobs j JOIN invoices i ON i.id = j.invoice_id WHERE j.same_owner = 0 ${where}`)
     .all(...args) as StatRow[];
+}
+
+/**
+ * How much a finished job counts against the seller. Nothing delivered by the deadline: a whole failure. A delivery the
+ * buyer disputed with no arbiter (refunded by the escrow) or still disputed: a quarter, since the buyer alone decided
+ * it. A dispute an arbiter settled: a half.
+ */
+export function failureWeight(r: Pick<StatRow, "status" | "arbiter" | "delivered_at">): number {
+  if (r.status === "refunded") return r.delivered_at === null ? 1 : 0.25;
+  if (r.status === "disputed") return 0.25;
+  if (r.status === "resolved") return r.arbiter ? 0.5 : 0.25;
+  return 0;
 }
 
 function statsOf(rows: StatRow[]): ListingStats {
@@ -239,12 +261,14 @@ export function searchListings(ctx: Ctx, q: MarketQuery = {}): Listing[] {
     });
   const cheapest = items.reduce((m, { r }) => (BigInt(r.price) < m ? BigInt(r.price) : m), MAX_U128);
   const fastest = items.reduce((m, { r }) => Math.min(m, r.delivery_seconds), Number.MAX_SAFE_INTEGER);
+  const failures = new Map<string, number>();
+  for (const [lid, rs] of byListing) failures.set(lid, rs.reduce((n, x) => n + failureWeight(x), 0));
   const scored = items.map(({ r, s }) => {
     const rating = shrunk(s) / 5;
     const jobs = Math.min(1, Math.log10(1 + s.completed) / 2);
     const price = BigInt(r.price) > 0n ? Number((cheapest * 10_000n) / BigInt(r.price)) / 10_000 : 1;
     const speed = r.delivery_seconds > 0 ? fastest / r.delivery_seconds : 1;
-    const reliable = (s.completed + 1) / (s.completed + s.refunded + s.disputed + 1);
+    const reliable = (s.completed + 1) / (s.completed + (failures.get(r.id) ?? 0) + 1);
     const score = Math.round((0.35 * rating + 0.25 * jobs + 0.2 * price + 0.2 * speed) * reliable * 1000) / 1000;
     return { r, s, score };
   });
@@ -276,7 +300,9 @@ export function listJobs(ctx: Ctx, safe: string, role?: "buyer" | "seller"): Job
         ? ctx.db.prepare("SELECT * FROM jobs WHERE seller = ? ORDER BY created_at DESC LIMIT 200").all(s)
         : ctx.db.prepare("SELECT * FROM jobs WHERE buyer = ? OR seller = ? ORDER BY created_at DESC LIMIT 200").all(s, s)
   ) as JobRow[];
-  return rows.map((r) => jobView(ctx, r));
+  // a hire that never moved money (blocked, or cancelled before funding) is the buyer's business: it does not fill
+  // the seller's list
+  return rows.map((r) => jobView(ctx, r)).filter((j) => !(sameAddress(j.seller, s) && !sameAddress(j.buyer, s) && (j.status === "blocked" || j.status === "cancelled")));
 }
 
 export async function hireRulesView(ctx: Ctx, safe: string): Promise<HireRules> {
@@ -294,6 +320,9 @@ export async function hireRulesView(ctx: Ctx, safe: string): Promise<HireRules> 
     mode: r.mode,
     sellers: r.sellers,
     maxPerJob: r.maxPerJob === null ? null : ctx.tokens.money(dep.usdg, r.maxPerJob),
+    maxPerSellerPerDay: r.maxPerSellerPerDay === null ? null : ctx.tokens.money(dep.usdg, r.maxPerSellerPerDay),
+    arbiters: r.arbiters,
+    minReviewSeconds: r.minReviewSeconds,
     approvalAbove,
     updatedAt: r.updatedAt,
   };
@@ -305,12 +334,36 @@ async function owners(ctx: Ctx, safe: string): Promise<string[]> {
   return ((await ctx.chain.pub.readContract({ address: safe as Address, abi: safeAbi, functionName: "getOwners" })) as string[]).map(lower);
 }
 
+/**
+ * Is an arbiter tied to the seller? It is when it is one of the seller's owners (now or seen before), or a Safe that
+ * shares an owner with the seller, or an account Purser Shield groups with the seller.
+ */
+async function arbiterTiedTo(ctx: Ctx, arbiter: string, seller: string, sellerOwners?: string[]): Promise<boolean> {
+  const so = new Set([...(sellerOwners ?? (await owners(ctx, seller).catch(() => []))), ...ownersOf(ctx, seller)]);
+  if (so.has(lower(arbiter))) return true;
+  const code = await ctx.chain.pub.getCode({ address: arbiter as Address }).catch(() => undefined);
+  if (code && code !== "0x") {
+    const ao = await owners(ctx, arbiter).catch(() => [] as string[]);
+    if ([...ao, ...ownersOf(ctx, arbiter)].some((o) => so.has(o))) return true;
+  }
+  return groups(ctx, [arbiter, seller]) === 1 && !!ctx.db.prepare("SELECT 1 FROM accounts WHERE safe = ?").get(lower(arbiter));
+}
+
 /** The buyer's agent hires a listing: invoice from the listing, escrow funded from the buyer's Safe inside its rules. */
-export async function hire(ctx: Ctx, auth: { safe: Address; session: PrivateKeyAccount | null }, input: { listingId: string; brief: string; trigger?: string | null }): Promise<HireResult> {
+export async function hire(
+  ctx: Ctx,
+  auth: { safe: Address; session: PrivateKeyAccount | null },
+  input: { listingId: string; brief: string; trigger?: string | null; maxPrice?: bigint; listingUpdatedAt?: number },
+): Promise<HireResult> {
   const dep = requireDep(ctx);
   const l = listingRow(ctx, input.listingId);
   const buyer = lower(auth.safe);
   if (!l.active) fail(410, "inactive", "This listing is paused.");
+  // the seller can change the price at any time: the buyer names the most it pays, or the version it read
+  if (input.maxPrice !== undefined && BigInt(l.price) > input.maxPrice) fail(409, "price_changed", "The listing's price is above the most this hire may pay.");
+  if (input.listingUpdatedAt !== undefined && l.updated_at > input.listingUpdatedAt) fail(409, "listing_changed", "The listing changed after it was read. Read it again.");
+  const recent = (ctx.db.prepare("SELECT COUNT(*) AS n FROM jobs WHERE buyer = ? AND created_at > ?").get(buyer, now() - 3600) as { n: number }).n;
+  if (recent >= HIRES_PER_HOUR) fail(429, "too_many_hires", `An account hires at most ${HIRES_PER_HOUR} times an hour.`);
   if (sameAddress(l.seller, buyer)) fail(400, "bad_request", "An agent cannot hire itself.");
   if (l.arbiter && sameAddress(l.arbiter, buyer)) fail(400, "bad_request", "The buyer cannot be the job's arbiter.");
   // checked fresh, never from the cache: a seller that stopped being a Purser Safe gets no hire
@@ -323,14 +376,20 @@ export async function hire(ctx: Ctx, auth: { safe: Address; session: PrivateKeyA
   const t = await chainNow(ctx);
   const deliverBy = t + (waits ? APPROVAL_WINDOW : 0) + l.delivery_seconds;
   const [ob, os] = await Promise.all([owners(ctx, buyer), owners(ctx, l.seller)]);
-  const sameOwner = ob.some((o) => os.includes(o));
+  // one owner, or accounts linked the way Purser Shield groups them (owners seen before, payments between them):
+  // such a job never counts for the seller's numbers or ratings
+  const sameOwner = ob.some((o) => os.includes(o)) || groups(ctx, [buyer, l.seller]) === 1;
+  if (l.arbiter && (await arbiterTiedTo(ctx, l.arbiter, l.seller, os))) fail(409, "arbiter_not_independent", "The listing's arbiter shares an owner with the seller.");
   const inv = createInvoice(ctx, { payee: l.seller, payer: buyer, arbiter: l.arbiter, token: l.token, amount, description: `Hire: ${l.title}`.slice(0, 500), deadline: deliverBy, reviewPeriod: l.review_seconds });
   const jid = id("job");
   ctx.db
     .prepare("INSERT INTO jobs (id, listing_id, invoice_id, buyer, seller, title, brief, same_owner, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run(jid, l.id, inv.id, buyer, lower(l.seller), l.title, input.brief, sameOwner ? 1 : 0, now(), now());
-  const res = await fundInvoice(ctx, auth, inv, { memo: `Hire: ${l.title.slice(0, 80)}`, trigger: input.trigger, deadline: BigInt(t + (waits ? APPROVAL_WINDOW : 15 * 60)) });
+  // the brief is the buyer's business: the firewall reads it, the verdict keeps only its hash and what was found
+  const res = await fundInvoice(ctx, auth, inv, { memo: `Hire: ${l.title.slice(0, 80)}`, trigger: input.trigger, triggerStore: "hash", deadline: BigInt(t + (waits ? APPROVAL_WINDOW : 15 * 60)) });
   ctx.db.prepare("UPDATE jobs SET intent_id = ?, updated_at = ? WHERE id = ?").run(res.intent.id, now(), jid);
+  // a hire whose funding failed is closed: its invoice can no longer be funded by anyone
+  if (["blocked", "failed", "rejected"].includes(res.intent.status) && invoiceRow(ctx, inv.id).status === "open") setStatus(ctx, inv.id, { status: "cancelled" });
   if (res.intent.status === "executed") ctx.db.prepare("UPDATE jobs SET funded_at = COALESCE(funded_at, ?) WHERE id = ?").run(t, jid);
   const job = jobView(ctx, jobRow(ctx, jid));
   emitJob(ctx, job);
@@ -350,17 +409,20 @@ export async function deliver(ctx: Ctx, auth: { safe: Address; session: PrivateK
   const inv = invoiceRow(ctx, j.invoice_id);
   if (inv.status !== "funded") fail(409, "wrong_state", inv.status === "open" ? "The job is not funded yet. Wait until the money is in escrow." : `The job is ${inv.status}.`);
   const hash = keccak256(toHex(result));
-  // stored first so the buyer can read it the moment the delivery is on chain; cleared if the chain refuses
-  ctx.db.prepare("UPDATE jobs SET result = ?, updated_at = ? WHERE id = ?").run(result, now(), jid);
+  // one delivery at a time: a second one while the first is on its way is refused, so the result kept is always the
+  // one whose hash the chain holds
+  if (!ctx.db.prepare("INSERT OR IGNORE INTO kv (key, value) VALUES (?, ?)").run(`delivering:${jid}`, String(now())).changes) fail(409, "delivering", "A delivery of this job is already on its way.");
   let res: PayResult;
   try {
     res = escrowDone(await escrowCallAsAgent(ctx, auth, encodeDeliver(jobOf(inv), hash), `Delivered: ${j.title.slice(0, 80)}`));
-  } catch (e) {
-    ctx.db.prepare("UPDATE jobs SET result = NULL WHERE id = ? AND delivered_at IS NULL").run(jid);
-    throw e;
+    // stored once the chain accepted the hash
+    ctx.db.prepare("UPDATE jobs SET result = ?, updated_at = ? WHERE id = ?").run(result, now(), jid);
+  } finally {
+    ctx.db.prepare("DELETE FROM kv WHERE key = ?").run(`delivering:${jid}`);
   }
   const detail = detailView(ctx, jobRow(ctx, jid));
-  emitJob(ctx, detail);
+  // the bus (and the public event stream, and webhooks) only ever carry the public view: never the brief or the result
+  emitJob(ctx, jobView(ctx, jobRow(ctx, jid)));
   await ctx.audit.append(`agent:${lower(auth.safe)}`, "job.delivered", auth.safe, { job: jid, hash });
   return { job: detail, result: res };
 }
@@ -403,7 +465,7 @@ export async function rate(ctx: Ctx, buyer: string, jid: string, r: { stars: num
   const dep = requireDep(ctx);
   const j = jobRow(ctx, jid);
   if (!sameAddress(j.buyer, buyer)) fail(403, "not_buyer", "Only the agent that paid for this job can rate it.");
-  if (j.same_owner) fail(403, "same_owner", "The buyer and the seller have the same owner, so this job cannot be rated.");
+  if (j.same_owner || groups(ctx, [j.buyer, j.seller]) === 1) fail(403, "same_owner", "The buyer and the seller share an owner (now or before) or paid each other, so this job cannot be rated.");
   if (j.rated_at) fail(409, "already_rated", "This job was rated already. A job is rated once.");
   const inv = invoiceRow(ctx, j.invoice_id);
   if (!inv.job_id) fail(409, "not_paid", "Only a job that was paid out can be rated. This one was never funded.");
@@ -448,19 +510,26 @@ export async function runKeeper(ctx: Ctx): Promise<{ claimed: string[]; refunded
   const out = { claimed: [] as string[], refunded: [] as string[] };
   if (!ctx.dep || !ctx.chain.broadcast || !ctx.chain.accounts.relayer) return out;
   const t = await chainNow(ctx);
+  // rows waiting for a retry (or that the engine will never relay) are left out, so they never hold the queue
   const due = ctx.db
-    .prepare("SELECT * FROM invoices WHERE job_id IS NOT NULL AND ((status = 'delivered' AND review_until < ?) OR (status = 'funded' AND deadline < ?)) ORDER BY updated_at LIMIT 20")
-    .all(t, t) as InvoiceRow[];
+    .prepare(
+      `SELECT i.* FROM invoices i LEFT JOIN kv ON kv.key = 'keeper:' || i.id
+       WHERE i.job_id IS NOT NULL AND ((i.status = 'delivered' AND i.review_until < ?) OR (i.status = 'funded' AND i.deadline < ?))
+       AND (kv.value IS NULL OR CAST(kv.value AS INTEGER) <= ?) ORDER BY i.updated_at LIMIT 20`,
+    )
+    .all(t, t, now()) as InvoiceRow[];
   for (const r of due) {
     const key = `keeper:${r.id}`;
-    if (Number(kvGet(ctx.db, key) ?? 0) > now()) continue;
     const claim = r.status === "delivered";
     try {
       await relayEscrow(ctx, encodeFunctionData({ abi: purserEscrowAbi, functionName: claim ? "claim" : "refund", args: [BigInt(r.job_id!)] }), claim ? r.payee : r.payer);
       (claim ? out.claimed : out.refunded).push(r.id);
       await ctx.audit.append("engine", claim ? "escrow.claimed" : "escrow.refunded", r.payer, { invoice: r.id, job: r.job_id });
-    } catch {
-      kvSet(ctx.db, key, String(now() + 60));
+    } catch (e) {
+      // the engine relays only for Purser accounts: a payout to a plain wallet is that wallet's to claim, never retried
+      const never = (e as { code?: string }).code === "not_account";
+      kvSet(ctx.db, key, never ? String(KEEPER_NEVER) : String(now() + 60));
+      if (never) await ctx.audit.append("engine", "escrow.keeper_skipped", r.payer, { invoice: r.id, job: r.job_id, reason: "not a Purser account" });
     }
   }
   return out;
@@ -560,6 +629,10 @@ registerRoutes((app: Hono, ctx: Ctx) => {
     if (!title) fail(400, "bad_request", "title: required (or a serviceId to copy it from)");
     if (!price || BigInt(price) === 0n) fail(400, "bad_request", "price: above zero, in USDG base units (6 decimals)");
     if (b.arbiter && (sameAddress(b.arbiter, auth.safe) || sameAddress(b.arbiter, ZERO))) fail(400, "bad_request", "arbiter: a third party, not the seller");
+    if (b.arbiter && (await arbiterTiedTo(ctx, b.arbiter, auth.safe))) fail(400, "arbiter_not_independent", "arbiter: shares an owner with the seller");
+    if (BigInt(price!) < minInvoice(ctx, dep.usdg)) fail(400, "too_small", "price: at least $0.01");
+    const made = (ctx.db.prepare("SELECT COUNT(*) AS n FROM listings WHERE seller = ? AND created_at > ?").get(lower(auth.safe), now() - 86400) as { n: number }).n;
+    if (made >= LISTINGS_PER_DAY) fail(429, "too_many_listings", `An account creates at most ${LISTINGS_PER_DAY} listings a day.`);
     const lid = id("lst");
     const t = now();
     ctx.db
@@ -573,7 +646,7 @@ registerRoutes((app: Hono, ctx: Ctx) => {
     const r = listingRow(ctx, param(c, "id"));
     if (!sameAddress(r.seller, auth.safe)) fail(403, "not_yours", "This listing belongs to another account.");
     const b = await body(c, z.object({ active: z.boolean().optional(), price: zAmount128.optional(), description: z.string().max(1000).optional(), deliverySeconds: z.number().int().min(60).max(30 * 86400).optional() }));
-    if (b.price !== undefined && BigInt(b.price) === 0n) fail(400, "bad_request", "price must be above zero");
+    if (b.price !== undefined && BigInt(b.price) < minInvoice(ctx, r.token)) fail(400, "too_small", "price: at least $0.01");
     ctx.db
       .prepare("UPDATE listings SET active = COALESCE(?, active), price = COALESCE(?, price), description = COALESCE(?, description), delivery_seconds = COALESCE(?, delivery_seconds), updated_at = ? WHERE id = ?")
       .run(b.active === undefined ? null : b.active ? 1 : 0, b.price ?? null, b.description ?? null, b.deliverySeconds ?? null, now(), r.id);
@@ -582,8 +655,11 @@ registerRoutes((app: Hono, ctx: Ctx) => {
 
   app.post("/v1/market/hire", async (c) => {
     const auth = agent(ctx, c, "invoices");
-    const b = await body(c, z.object({ listingId: z.string().min(1), brief: z.string().min(1).max(4000), context: z.string().max(20000).optional() }));
-    const r = await hire(ctx, auth, { listingId: b.listingId, brief: b.brief, trigger: b.context ?? b.brief });
+    const b = await body(
+      c,
+      z.object({ listingId: z.string().min(1), brief: z.string().min(1).max(4000), context: z.string().max(20000).optional(), maxPrice: zAmount128.optional(), listingUpdatedAt: z.number().int().optional() }),
+    );
+    const r = await hire(ctx, auth, { listingId: b.listingId, brief: b.brief, trigger: b.context ?? b.brief, maxPrice: b.maxPrice === undefined ? undefined : BigInt(b.maxPrice), listingUpdatedAt: b.listingUpdatedAt });
     return send(c, r, statusCode(r.intent.status));
   });
   app.get("/v1/market/jobs/:id", (c) => send(c, jobView(ctx, jobRow(ctx, param(c, "id")))));
@@ -616,12 +692,32 @@ registerRoutes((app: Hono, ctx: Ctx) => {
     const role = c.req.query("role");
     return send(c, { items: listJobs(ctx, safeParam(c), role === "buyer" || role === "seller" ? role : undefined), next: null });
   });
-  app.get("/v1/accounts/:safe/hire-rules", async (c) => send(c, await hireRulesView(ctx, safeParam(c))));
+  // the owner's hire rules are for the account's own agent and its owners
+  app.get("/v1/accounts/:safe/hire-rules", async (c) => {
+    const safe = safeParam(c);
+    await party(ctx, c, [safe]);
+    return send(c, await hireRulesView(ctx, safe));
+  });
   app.put("/v1/accounts/:safe/hire-rules", async (c) => {
     const safe = safeParam(c);
     const who = await safeOwner(ctx, c, safe);
-    const b = await body(c, z.object({ mode: z.enum(["any", "listed", "off"]), sellers: z.array(zAddr).max(200).default([]), maxPerJob: zAmount128.nullable().default(null) }));
-    writeHireRule(ctx, safe, { mode: b.mode, sellers: b.sellers, maxPerJob: b.maxPerJob === null ? null : BigInt(b.maxPerJob) }, now());
+    const b = await body(
+      c,
+      z.object({
+        mode: z.enum(["any", "listed", "off"]),
+        sellers: z.array(zAddr).max(200).default([]),
+        maxPerJob: zAmount128.nullable().default(null),
+        maxPerSellerPerDay: zAmount128.nullable().default(null),
+        arbiters: z.array(zAddr).max(50).default([]),
+        minReviewSeconds: z.number().int().min(0).max(30 * 86400).nullable().default(null),
+      }),
+    );
+    writeHireRule(
+      ctx,
+      safe,
+      { mode: b.mode, sellers: b.sellers, maxPerJob: b.maxPerJob === null ? null : BigInt(b.maxPerJob), maxPerSellerPerDay: b.maxPerSellerPerDay === null ? null : BigInt(b.maxPerSellerPerDay), arbiters: b.arbiters, minReviewSeconds: b.minReviewSeconds },
+      now(),
+    );
     await ctx.audit.append(`owner:${lower(who)}`, "hire_rules.set", safe, { mode: b.mode, sellers: b.sellers.length, maxPerJob: b.maxPerJob });
     return send(c, await hireRulesView(ctx, safe));
   });

@@ -181,7 +181,7 @@ export function inStanding(ctx: Ctx, safe: string): boolean {
 }
 
 /** Every owner an account was ever seen with: its row and what the indexer remembered. */
-function ownersOf(ctx: Ctx, safe: string): string[] {
+export function ownersOf(ctx: Ctx, safe: string): string[] {
   const row = ctx.db.prepare("SELECT owners FROM accounts WHERE safe = ?").get(lower(safe)) as { owners: string } | undefined;
   const seen = ctx.db.prepare("SELECT value FROM kv WHERE key = ?").get(`owners_seen:${lower(safe)}`) as { value: string } | undefined;
   return [...new Set([...(JSON.parse(row?.owners ?? "[]") as string[]), ...(JSON.parse(seen?.value ?? "[]") as string[])].map((o) => o.toLowerCase()))];

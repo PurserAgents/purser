@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { encodeFunctionData, type Address } from "viem";
+import { encodeFunctionData, type Address, type Hex } from "viem";
 import { z } from "zod";
 import { purserModuleAbi } from "../../packages/sdk/src/abi.ts";
 import type { WatchdogBaseline, WatchdogEvent } from "../../packages/sdk/src/schema.ts";
@@ -8,6 +8,7 @@ import { registerRoutes } from "./api/registry.ts";
 import { body, safeOwner, safeParam, send } from "./api/http.ts";
 import { chainNow, requireDep, type Ctx } from "./ctx.ts";
 import { registerTask } from "./engine.ts";
+import { decodeEscrowFund } from "./hireRules.ts";
 import { ingestReceipt } from "./indexer.ts";
 import { CREDIT_SERVICE } from "./models.ts";
 import { explainRevert } from "./chain.ts";
@@ -28,6 +29,7 @@ export const WATCH = {
 
 interface Row {
   service: string | null;
+  intent_id: string | null;
   counterparty: string;
   amount: string;
   token: string;
@@ -37,7 +39,7 @@ interface Row {
 
 function outflows(ctx: Ctx, safe: string, since: number): Row[] {
   return ctx.db
-    .prepare("SELECT service, counterparty, amount, token, usd_micro, created_at FROM receipts WHERE safe = ? AND direction = 'out' AND status = 'executed' AND category NOT IN ('treasury','split') AND created_at >= ? ORDER BY created_at ASC")
+    .prepare("SELECT service, intent_id, counterparty, amount, token, usd_micro, created_at FROM receipts WHERE safe = ? AND direction = 'out' AND status = 'executed' AND category NOT IN ('treasury','split') AND created_at >= ? ORDER BY created_at ASC")
     .all(lower(safe), since) as Row[];
 }
 
@@ -92,7 +94,14 @@ export async function inspect(ctx: Ctx, safe: Address, t?: number): Promise<Find
   const dep = requireDep(ctx);
   const now_ = t ?? (await chainNow(ctx));
   const b = baseline(ctx, safe, now_);
-  const hour = outflows(ctx, safe, now_ - 3600);
+  // money into the escrow is money for the job's payee: hiring five different agents at one price is not a loop
+  const hour = outflows(ctx, safe, now_ - 3600).map((r) => {
+    if (!r.intent_id || !sameAddress(r.counterparty, dep.escrow)) return r;
+    const it = ctx.db.prepare("SELECT payload FROM intents WHERE id = ?").get(r.intent_id) as { payload: string } | undefined;
+    const data = it ? (JSON.parse(it.payload) as { intent?: { data?: Hex } }).intent?.data : undefined;
+    const job = decodeEscrowFund(ctx, dep.escrow, data);
+    return job ? { ...r, counterparty: job.payee } : r;
+  });
   const found: Finding[] = [];
   const hourUsd = hour.reduce((s, r) => s + BigInt(r.usd_micro), 0n);
 

@@ -275,9 +275,9 @@ for (const kind of ["stream", "subscription"] as const) {
  * Sends a recurring transaction from the relayer. `account` is the Safe that pays: the gas counts against its share of
  * the day. Payouts get a small gas limit, so a payee contract that burns gas cannot take more than one payout's worth.
  */
-async function relay(ctx: Ctx, data: Hex, category: string, opts: { account: string | null; maxGas?: bigint }) {
+async function relay(ctx: Ctx, data: Hex, category: string, opts: { account: string | null; maxGas?: bigint; open?: boolean }) {
   const dep = requireDep(ctx);
-  const r = await ctx.chain.send(ctx.chain.accounts.relayer!, { to: dep.recurring, data, account: opts.account ?? undefined, maxGas: opts.maxGas });
+  const r = await ctx.chain.send(ctx.chain.accounts.relayer!, { to: dep.recurring, data, account: opts.account ?? undefined, maxGas: opts.maxGas, open: opts.open });
   if (r.status !== "success") throw new Error("reverted");
   tagTx(ctx, r.transactionHash, category);
   await ingestReceipt(ctx, r);
@@ -434,15 +434,26 @@ registerRoutes((app: Hono, ctx: Ctx) => {
   app.post("/v1/streams/:id/heartbeat", async (c) => {
     const b = await body(c, z.object({ upTo: z.number().int(), signature: zHex }));
     const sid = numId(c);
-    const row = ctx.db.prepare("SELECT safe FROM streams WHERE id = ?").get(String(sid)) as { safe: string } | undefined;
+    const row = ctx.db.prepare("SELECT safe, payee FROM streams WHERE id = ?").get(String(sid)) as { safe: string; payee: string } | undefined;
     if (!row) fail(404, "not_found", "No such stream.");
-    // a signed heartbeat is public once relayed: one that is not newer than the last would only burn the relayer's gas
+    // a signed heartbeat is public once relayed: one that is not newer than the last would only burn the relayer's gas,
+    // and one for a time still ahead would stay newer than the last for as long as the stream runs
     const t = await chainNow(ctx);
+    if (b.upTo > t) fail(409, "future_heartbeat", "A heartbeat says what was delivered so far: its time cannot be ahead of the chain's.");
     const chain = await ctx.chain.pub.readContract({ address: requireDep(ctx).recurring, abi: purserRecurringAbi, functionName: "streams", args: [sid] });
-    if (Math.min(b.upTo, t) <= Number(chain[7])) fail(409, "stale_heartbeat", "This heartbeat is not newer than the last one.");
-    if (t - Number(kvGet(ctx.db, `heartbeat_at:${sid}`) ?? "0") < 30) fail(429, "too_soon", "A heartbeat for this stream was relayed in the last 30 seconds.");
-    const r = await relay(ctx, encodeFunctionData({ abi: purserRecurringAbi, functionName: "heartbeat", args: [sid, BigInt(b.upTo), b.signature] }), "stream", { account: row!.safe, maxGas: GAS_LIMITS.payout }).catch((e) => fail(400, "heartbeat_refused", explainRevert(e)));
-    kvSet(ctx.db, `heartbeat_at:${sid}`, String(t));
+    if (b.upTo <= Number(chain[7])) fail(409, "stale_heartbeat", "This heartbeat is not newer than the last one.");
+    // one relay per stream per 30 seconds, claimed in one statement so requests at the same moment cannot all pass
+    const claimed = ctx.db
+      .prepare("INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value WHERE CAST(kv.value AS INTEGER) <= ?")
+      .run(`heartbeat_at:${sid}`, String(t), t - 30).changes;
+    if (!claimed) fail(429, "too_soon", "A heartbeat for this stream was relayed in the last 30 seconds.");
+    // the payee asks for heartbeats: their gas is the payee account's, or the open share for a plain wallet
+    const payeeIsAccount = !!ctx.db.prepare("SELECT 1 FROM accounts WHERE safe = ?").get(lower(row!.payee));
+    const r = await relay(ctx, encodeFunctionData({ abi: purserRecurringAbi, functionName: "heartbeat", args: [sid, BigInt(b.upTo), b.signature] }), "stream", {
+      account: payeeIsAccount ? lower(row!.payee) : null,
+      open: !payeeIsAccount,
+      maxGas: GAS_LIMITS.payout,
+    }).catch((e) => fail(400, "heartbeat_refused", explainRevert(e)));
     return send(c, { txHash: r.transactionHash });
   });
   /** Settle now: for the paying account's or the payee account's own key, once it is worth its gas, at most every ten minutes. */

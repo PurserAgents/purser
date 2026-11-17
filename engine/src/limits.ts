@@ -16,6 +16,7 @@ export function clampStoredAmounts(db: DB): Record<string, number> {
     ["invoices", "id", "amount", ""],
     ["departments", "id", "daily_budget", ""],
     ["hire_rules", "safe", "max_per_job", ""],
+    ["hire_rules_more", "safe", "max_per_seller_day", ""],
   ];
   const out: Record<string, number> = {};
   for (const [table, key, column, extra] of plan) {

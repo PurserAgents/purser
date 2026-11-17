@@ -6,7 +6,7 @@ import { purserEscrowAbi } from "../../packages/sdk/src/abi.ts";
 import type { Invoice, InvoiceStatus, PayResult } from "../../packages/sdk/src/schema.ts";
 import { registerRoutes } from "./api/registry.ts";
 import { agent, body, param, send, zAddr, zAmount128, zBytes32 } from "./api/http.ts";
-import { explainRevert } from "./chain.ts";
+import { explainRevert, GAS_LIMITS } from "./chain.ts";
 import { chainNow, requireDep, type Ctx } from "./ctx.ts";
 import { ingestReceipt, onExtension } from "./indexer.ts";
 import { submitIntent } from "./intents.ts";
@@ -62,7 +62,7 @@ export function listInvoices(ctx: Ctx, safe?: string): Invoice[] {
   return rows.map((r) => invoiceView(ctx, r));
 }
 
-function setStatus(ctx: Ctx, iid: string, patch: Partial<Pick<InvoiceRow, "status" | "job_id" | "delivery_hash" | "review_until">>) {
+export function setStatus(ctx: Ctx, iid: string, patch: Partial<Pick<InvoiceRow, "status" | "job_id" | "delivery_hash" | "review_until">>) {
   const cur = invoiceRow(ctx, iid);
   const next = { ...cur, ...patch, updated_at: now() };
   ctx.db.prepare("UPDATE invoices SET status = ?, job_id = ?, delivery_hash = ?, review_until = ?, updated_at = ? WHERE id = ?").run(next.status, next.job_id, next.delivery_hash, next.review_until, next.updated_at, iid);
@@ -83,9 +83,35 @@ export function fundedMatches(r: InvoiceRow, a: Record<string, unknown>): boolea
   );
 }
 
+/**
+ * The escrow's own record of the job carries exactly the invoice's arbiter and review period too (the JobFunded event
+ * does not name them): a buyer cannot fund a job with no arbiter, or a review window of its own choosing, and have it
+ * count as the invoice.
+ */
+async function jobTermsMatch(ctx: Ctx, r: InvoiceRow, jobId: bigint): Promise<boolean> {
+  const job = await ctx.chain.pub.readContract({ address: requireDep(ctx).escrow, abi: purserEscrowAbi, functionName: "getJob", args: [jobId] }).catch(() => null);
+  if (!job) return false;
+  return (
+    sameAddress(job.arbiter, r.arbiter ?? ZERO) &&
+    Number(job.reviewPeriod) === r.review_period &&
+    sameAddress(job.payer, r.payer) &&
+    sameAddress(job.payee, r.payee) &&
+    sameAddress(job.token, r.token) &&
+    job.amount === BigInt(r.amount) &&
+    Number(job.deadline) === r.deadline
+  );
+}
+
 /** The token's own Transfer from the payer to the escrow for the amount (for ETH, the escrow's balance growth). */
 async function fundProven(ctx: Ctx, tx: string, r: InvoiceRow): Promise<boolean> {
   return paymentProven(ctx, tx as Hex, { payer: r.payer, token: r.token, to: requireDep(ctx).escrow, amount: BigInt(r.amount) });
+}
+
+/** The smallest invoice (and listing price): $0.01 in USDG, 0.00001 ETH; other tokens have no floor. */
+export function minInvoice(ctx: Ctx, token: string): bigint {
+  if (ctx.dep && sameAddress(token, ctx.dep.usdg)) return 10_000n;
+  if (sameAddress(token, ZERO)) return 10n ** 13n;
+  return 1n;
 }
 
 /** Stores a new open invoice. The payee asks for the money; for a hire the engine writes it from the listing. */
@@ -110,11 +136,11 @@ onExtension(async (ctx, source, ev, tx) => {
   const byJob = ctx.db.prepare("SELECT id FROM invoices WHERE job_id = ?").get(jobId) as { id: string } | undefined;
   if (ev.eventName === "JobFunded") {
     // the reference is public, so anyone could fund a job carrying it: only a job with exactly the invoice's payer,
-    // payee, token, amount and deadline funds the invoice
+    // payee, token, amount, deadline, arbiter and review period funds the invoice
     const all = ctx.db.prepare("SELECT * FROM invoices WHERE status = 'open'").all() as InvoiceRow[];
     const match = all.find((r) => invoiceRef(r.id) === (a.invoiceRef as string).toLowerCase() && fundedMatches(r, a));
     // and the money must be seen reaching the escrow, as for any payment
-    if (match && (await fundProven(ctx, tx, match))) setStatus(ctx, match.id, { status: "funded", job_id: jobId });
+    if (match && (await jobTermsMatch(ctx, match, a.id as bigint)) && (await fundProven(ctx, tx, match))) setStatus(ctx, match.id, { status: "funded", job_id: jobId });
     return;
   }
   if (!byJob) return;
@@ -165,7 +191,7 @@ export async function relayEscrow(ctx: Ctx, data: Hex, account: string) {
   const real = await checkSafe(ctx, account, { fresh: true }).catch(() => null);
   if (!real?.ok) return fail(409, "not_account", real ? "The account this payout is for is not a Purser Safe." : "The account could not be checked. Nothing was sent.");
   try {
-    const r = await ctx.chain.send(ctx.chain.accounts.relayer!, { to: dep.escrow, data, account });
+    const r = await ctx.chain.send(ctx.chain.accounts.relayer!, { to: dep.escrow, data, account, maxGas: GAS_LIMITS.payout });
     if (r.status !== "success") throw new Error("reverted");
     await ingestReceipt(ctx, r);
     return r.transactionHash;
@@ -186,7 +212,7 @@ export async function fundInvoice(
   ctx: Ctx,
   auth: { safe: Address; session: PrivateKeyAccount | null },
   r: InvoiceRow,
-  opts: { memo: string; trigger?: string | null; deadline?: bigint; category?: "escrow" },
+  opts: { memo: string; trigger?: string | null; triggerStore?: "full" | "hash"; deadline?: bigint; category?: "escrow" },
 ): Promise<PayResult> {
   const dep = requireDep(ctx);
   const eth = sameAddress(r.token, ZERO);
@@ -201,7 +227,7 @@ export async function fundInvoice(
     category: "escrow",
     signer: auth.session,
     deadline: opts.deadline,
-    meta: { memo: opts.memo, trigger: opts.trigger ?? null },
+    meta: { memo: opts.memo, trigger: opts.trigger ?? null, triggerStore: opts.triggerStore },
   });
   if (res.intent.status === "executed" && res.intent.txHash) await linkFromReceipt(ctx, r.id, res.intent.txHash);
   return res;
@@ -216,7 +242,14 @@ export async function linkFromReceipt(ctx: Ctx, iid: string, tx: Hex) {
     try {
       const ev = decodeEventLog({ abi: purserEscrowAbi, data: l.data, topics: l.topics });
       const cur = invoiceRow(ctx, iid);
-      if (ev.eventName === "JobFunded" && cur.status === "open" && invoiceRef(iid) === (ev.args as { invoiceRef: string }).invoiceRef.toLowerCase() && fundedMatches(cur, ev.args as never) && (await fundProven(ctx, tx, cur)))
+      if (
+        ev.eventName === "JobFunded" &&
+        cur.status === "open" &&
+        invoiceRef(iid) === (ev.args as { invoiceRef: string }).invoiceRef.toLowerCase() &&
+        fundedMatches(cur, ev.args as never) &&
+        (await jobTermsMatch(ctx, cur, (ev.args as { id: bigint }).id)) &&
+        (await fundProven(ctx, tx, cur))
+      )
         setStatus(ctx, iid, { status: "funded", job_id: (ev.args as { id: bigint }).id.toString() });
     } catch {
       /* other events */
@@ -236,13 +269,15 @@ registerRoutes((app: Hono, ctx: Ctx) => {
         description: z.string().min(1).max(500),
         deadline: z.number().int().optional(),
         dueInSeconds: z.number().int().min(60).optional(),
-        reviewPeriodSeconds: z.number().int().min(60).default(86400),
+        reviewPeriodSeconds: z.number().int().min(60).max(30 * 86400).default(86400),
         arbiter: zAddr.nullable().default(null),
       }),
     );
     if (sameAddress(b.payer, auth.safe)) fail(400, "bad_request", "An agent cannot invoice itself.");
+    const token = b.token ?? requireDep(ctx).usdg;
+    if (BigInt(b.amount) < minInvoice(ctx, token)) fail(400, "too_small", "An invoice is at least $0.01 (USDG) or 0.00001 ETH: smaller ones cost more gas to pay out than they are worth.");
     const deadline = b.deadline ?? (await chainNow(ctx)) + (b.dueInSeconds ?? 7 * 86400);
-    const created = createInvoice(ctx, { payee: auth.safe, payer: b.payer, arbiter: b.arbiter, token: b.token ?? requireDep(ctx).usdg, amount: BigInt(b.amount), description: b.description, deadline, reviewPeriod: b.reviewPeriodSeconds });
+    const created = createInvoice(ctx, { payee: auth.safe, payer: b.payer, arbiter: b.arbiter, token, amount: BigInt(b.amount), description: b.description, deadline, reviewPeriod: b.reviewPeriodSeconds });
     const iid = created.id;
     const inv = invoiceView(ctx, created);
     ctx.bus.emit("invoice", inv.payer, inv);

@@ -392,6 +392,8 @@ export interface Job {
   seller: Address;
   sellerName: string | null;
   arbiter: Address | null;
+  /** the review window after delivery; a funded job is linked only when the escrow holds exactly this and the arbiter */
+  reviewSeconds?: number;
   money: Money;
   status: JobStatus;
   invoiceId: string;
@@ -419,6 +421,12 @@ export interface HireRules {
   mode: "any" | "listed" | "off";
   sellers: Address[];
   maxPerJob: Money | null;
+  /** the most paid to one seller in a day, null = no limit */
+  maxPerSellerPerDay?: Money | null;
+  /** when not empty, a hire's arbiter must be one of these */
+  arbiters?: Address[];
+  /** the shortest review window a hire may have, null = any */
+  minReviewSeconds?: number | null;
   approvalAbove: Money | null;
   updatedAt: number | null;
 }
@@ -438,7 +446,8 @@ export type InvoiceStatus =
   | "disputed"
   | "released"
   | "refunded"
-  | "resolved";
+  | "resolved"
+  | "cancelled";
 
 export interface Invoice {
   id: string;

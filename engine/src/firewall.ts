@@ -1,12 +1,13 @@
-import { decodeEventLog, decodeFunctionData, getAddress, isHex, keccak256, parseAbi, size, slice, toEventSelector, toHex, type Address, type Hex } from "viem";
+import { decodeEventLog, decodeFunctionData, encodeAbiParameters, getAddress, isHex, keccak256, parseAbi, size, slice, toEventSelector, toHex, type Address, type Hex } from "viem";
 import { erc20Abi, purserModuleAbi } from "../../packages/sdk/src/abi.ts";
 import type { AssetChange, SimulationSummary, Verdict, VerdictReason } from "../../packages/sdk/src/schema.ts";
-import { balanceOf, setsOf } from "./accounts.ts";
+import { balanceOf, readRule, setsOf } from "./accounts.ts";
 import { decodeRevertData, REVERT_WORDS } from "./chain.ts";
-import { requireDep, type Ctx } from "./ctx.ts";
-import { decodeEscrowFund, hireReasons } from "./hireRules.ts";
+import { chainNow, requireDep, type Ctx } from "./ctx.ts";
+import { decodeEscrowFund, hireReasons, paidToSellerToday } from "./hireRules.ts";
+import { triggerHash } from "./intents.ts";
 import type { PolicyResult } from "./policy.ts";
-import { fmt, id, json, lower, now, parseJson, sameAddress, ZERO } from "./util.ts";
+import { fmt, id, json, lower, MAX_U128, now, parseJson, sameAddress, ZERO } from "./util.ts";
 import { NOT_GENUINE, protectSchedules, recordShieldStop, recordThreats, sentencePrints, shieldCheck, type ThreatCandidate } from "./shield.ts";
 
 // ---------------------------------------------------------------------------------------------------- simulation
@@ -342,6 +343,14 @@ const DANGEROUS_NAMES = [
   "setGuard",
   "setModuleGuard",
   "setFallbackHandler",
+  "setPendingAdmin",
+  "acceptOwnership",
+  "setAdmin",
+  "upgrade",
+  "upgradeAndCall",
+  "setImplementation",
+  "nominateNewOwner",
+  "setGovernance",
 ];
 
 /** Dangerous functions named as text anywhere in the call data, e.g. "transferOwnership(address)" in a timelock call. */
@@ -396,6 +405,8 @@ export interface FirewallInput {
   tx: { from: Address; to: Address; data: Hex; value?: bigint };
   policy: PolicyResult;
   trigger?: string | null;
+  /** "hash": the text is read here but the stored verdict keeps only its hash and what was found, never a quote */
+  triggerStore?: "full" | "hash";
   intentId: string | null;
   category?: string;
   /** A payout of a plan the owner and the firewall already agreed to (a subscription charge, a stream payout): the
@@ -503,6 +514,23 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
       if (!listed) add("payee_not_allowed", "block", "Payee not on the allowlist", "The owner only allows payments to listed payees, and the agent this job pays is not listed.");
     }
     reasons.push(...hireReasons(ctx, input.safe, job));
+    // the owner's daily limit for this payee holds for money paid through the escrow too: the module counts the escrow
+    // as the counterparty, so the engine counts the job's payee
+    const cap = await payeeDailyCap(ctx, input.safe, job.token, job.payee);
+    if (cap !== null) {
+      const day = BigInt(Math.floor((await chainNow(ctx)) / 86400));
+      const direct = await ctx.chain.pub.readContract({
+        address: dep.module,
+        abi: purserModuleAbi,
+        functionName: "counterpartySpent",
+        args: [keccak256(encodeAbiParameters([{ type: "address" }, { type: "address" }, { type: "address" }, { type: "uint256" }], [input.safe, job.token, job.payee, day]))],
+      });
+      const viaEscrow = paidToSellerToday(ctx, input.safe, job.payee, job.token);
+      if (direct + viaEscrow + job.amount > cap) {
+        const t = ctx.tokens.infoSync(job.token);
+        add("counterparty_limit", "block", "Over the daily limit for this payee", `The agent this job pays has received ${fmt(direct + viaEscrow, t.decimals)} ${t.symbol} today, in payments and escrow jobs; the limit is ${fmt(cap, t.decimals)} ${t.symbol}.`);
+      }
+    }
   }
   if (DEAD.has(lower(input.to))) add("burn_address", "block", "Paying a burn address", "Money sent to this address can never be recovered.");
   if (input.token && sameAddress(input.to, input.token)) add("token_contract", "block", "Paying the token contract itself", "Tokens sent to their own contract are usually lost.");
@@ -557,7 +585,7 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
       "injection",
       "block",
       "A hidden instruction in what the agent read",
-      `The request that led to this payment ${inj.strong.slice(0, 2).join(" and ")}${inj.addressInText ? ", and the payee address comes from that same text" : ""}.${inj.excerpt ? ` It says: "${inj.excerpt.slice(0, 160)}"` : ""}`,
+      `The request that led to this payment ${inj.strong.slice(0, 2).join(" and ")}${inj.addressInText ? ", and the payee address comes from that same text" : ""}.${inj.excerpt && input.triggerStore !== "hash" ? ` It says: "${inj.excerpt.slice(0, 160)}"` : ""}`,
     );
   } else if (inj.hiding.length && inj.addressInText) {
     threats.push({ address: input.to, kind: "planted_payee" });
@@ -594,7 +622,7 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
     summary,
     reasons,
     simulation: sim,
-    trigger: input.trigger ? input.trigger.slice(0, 4000) : null,
+    trigger: input.trigger ? (input.triggerStore === "hash" ? triggerHash(input.trigger) : input.trigger.slice(0, 4000)) : null,
     createdAt: now(),
   };
   ctx.db
@@ -613,6 +641,17 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
   }
   if (shield.matched.length && (decision === "block" || shield.hold)) recordShieldStop(ctx, input.safe, verdict.id, shield.matched, verdict.createdAt);
   return { verdict, simulation: raw, hold: decision === "allow" && shield.hold };
+}
+
+/** The owner's daily limit for one payee (its own limit, or the token rule's per-payee limit), null when there is none. */
+async function payeeDailyCap(ctx: Ctx, safe: string, token: string, payee: string): Promise<bigint | null> {
+  const dep = requireDep(ctx);
+  const [rule, override] = await Promise.all([
+    readRule(ctx, safe as Address, token as Address),
+    ctx.chain.pub.readContract({ address: dep.module, abi: purserModuleAbi, functionName: "counterpartyLimit", args: [safe as Address, token as Address, payee as Address] }),
+  ]);
+  const cap = override > 0n ? override : rule.perCounterpartyDaily;
+  return cap >= MAX_U128 ? null : cap;
 }
 
 export function isKnownCounterparty(ctx: Ctx, safe: string, who: string): boolean {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { decodeEventLog, encodeFunctionData, isHex, recoverTypedDataAddress, type Address, type Hex, type Log } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
 import { purserModuleAbi } from "../../packages/sdk/src/abi.ts";
@@ -29,6 +30,7 @@ import { fail, fmt, id, json, lower, now, parseJson, sameAddress, ZERO } from ".
 export interface IntentMeta {
   memo?: string | null;
   trigger?: string | null; // the text that led to the payment (web page, email, tool output)
+  triggerStore?: "full" | "hash"; // "hash": the text is read by the firewall but only its hash is stored (a hire's brief)
   taskId?: string | null;
   customer?: string | null;
   model?: ModelUsage | null;
@@ -159,12 +161,13 @@ export async function submitIntent(ctx: Ctx, input: SubmitInput): Promise<PayRes
   const iid = id("int");
   const meta: IntentMeta = { ...input.meta };
   if (input.spec.kind === "pay" && input.spec.pay.service && !isHex(input.spec.pay.service)) meta.serviceRef ??= input.spec.pay.service;
+  const stored: IntentMeta = meta.triggerStore === "hash" && meta.trigger ? { ...meta, trigger: triggerHash(meta.trigger) } : meta;
   ctx.db
     .prepare(
       `INSERT INTO intents (id, safe, kind, digest, payload, sigs, status, summary, token, amount, to_addr, category, meta, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, 'checking', ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(iid, safe, b.kind, lower(b.digest), serialize(b), agentSig, d.summary, d.token ? lower(d.token) : null, d.amount.toString(), lower(d.to), input.category, json(meta), now(), now());
+    .run(iid, safe, b.kind, lower(b.digest), serialize(b), agentSig, d.summary, d.token ? lower(d.token) : null, d.amount.toString(), lower(d.to), input.category, json(stored), now(), now());
 
   const policy = await checkPolicy(ctx, safe, d.spends, { kind: b.kind === "call" ? "call" : "pay" });
   const signerOk = sameAddress(await recoverTypedDataAddress({ ...(b.typed as object), signature: agentSig } as never), policy.agent);
@@ -205,6 +208,7 @@ export async function submitIntent(ctx: Ctx, input: SubmitInput): Promise<PayRes
     tx: { from, to: dep.module, data },
     policy,
     trigger: meta.trigger,
+    triggerStore: meta.triggerStore,
     intentId: iid,
     category: input.category,
   });
@@ -228,6 +232,9 @@ export async function submitIntent(ctx: Ctx, input: SubmitInput): Promise<PayRes
   setIntent(ctx, iid, { verdict_id: verdict.id, sigs });
   return relay(ctx, iid, verdict);
 }
+
+/** What a verdict keeps of a private text: its hash and its length. */
+export const triggerHash = (text: string) => `sha256:${createHash("sha256").update(text).digest("hex")} (${text.length} characters, not stored)`;
 
 function placeholderVerdict(safe: Address, iid: string, summary: string): Verdict {
   return { id: "", safe, intentId: iid, decision: "allow", summary, reasons: [], simulation: null, trigger: null, createdAt: now() };

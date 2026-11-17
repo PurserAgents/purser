@@ -48,6 +48,7 @@ export const invoiceStatusLabel: Record<InvoiceStatus, string> = {
   released: "Paid out",
   refunded: "Refunded",
   resolved: "Resolved",
+  cancelled: "Closed, never funded",
 };
 
 export const jobStatusLabel: Record<JobStatus, string> = {

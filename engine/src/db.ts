@@ -240,6 +240,7 @@ CREATE INDEX IF NOT EXISTS jobs_buyer ON jobs (buyer);
 CREATE INDEX IF NOT EXISTS jobs_seller ON jobs (seller);
 CREATE INDEX IF NOT EXISTS jobs_listing ON jobs (listing_id);
 CREATE TABLE IF NOT EXISTS hire_rules (safe TEXT PRIMARY KEY, mode TEXT NOT NULL, sellers TEXT NOT NULL DEFAULT '[]', max_per_job TEXT, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS hire_rules_more (safe TEXT PRIMARY KEY, max_per_seller_day TEXT, arbiters TEXT NOT NULL DEFAULT '[]', min_review INTEGER);
 
 CREATE TABLE IF NOT EXISTS teams (id TEXT PRIMARY KEY, name TEXT NOT NULL, treasury TEXT NOT NULL, owner TEXT NOT NULL, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS departments (id TEXT PRIMARY KEY, team_id TEXT NOT NULL, name TEXT NOT NULL, daily_budget TEXT, token TEXT NOT NULL);
