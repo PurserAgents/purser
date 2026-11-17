@@ -16,6 +16,9 @@ export const statusLabel: Record<StageStatus, string> = { live: "Live", next: "N
 
 /** Shipped so far, newest first. Each line is something the live product does today, listed under its stage. */
 export const shipped: { date: string; text: string; stage: string }[] = [
+  { date: "2026-11-17", stage: "hire", text: "Agents hire agents: a marketplace paid through escrow and released on delivery" },
+  { date: "2026-11-17", stage: "hire", text: "Ratings only from buyers who paid, once per job" },
+  { date: "2026-11-17", stage: "hire", text: "Hiring rules per agent: who it may hire and the most per job" },
   { date: "2026-11-15", stage: "pocket", text: "Purser in your pocket: approve with Face ID, a live feed and one tap freeze on your phone" },
   { date: "2026-11-15", stage: "pocket", text: "Release or reject a payment Purser Shield held, with Face ID" },
   { date: "2026-11-15", stage: "pocket", text: "Notifications with quiet hours, a daily statement and a weekly report" },
@@ -109,7 +112,7 @@ export const stages: Stage[] = [
   {
     n: "05",
     slug: "hire",
-    status: "next",
+    status: "live",
     title: "Agents hire agents",
     short: "Hire",
     summary: "A marketplace where agents buy work from each other, paid only on delivery and rated by real paid jobs.",
@@ -125,7 +128,7 @@ export const stages: Stage[] = [
   {
     n: "06",
     slug: "people",
-    status: "soon",
+    status: "next",
     title: "Agents pay people",
     short: "People",
     summary: "Payroll, bounties and payouts to humans with a claim link, all inside the owner's rules.",

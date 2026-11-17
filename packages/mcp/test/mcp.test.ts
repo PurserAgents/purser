@@ -50,7 +50,25 @@ describe("MCP server: an agent's account as tools (17.1)", () => {
   it("lists the tools", async () => {
     const t = await client.listTools();
     const names = t.tools.map((x) => x.name).sort();
-    for (const n of ["purser_account", "purser_ask_model", "purser_check_payment", "purser_invoice", "purser_pay", "purser_pnl", "purser_receipts", "purser_rules", "purser_sell", "purser_x402_fetch"]) assert.ok(names.includes(n), n);
+    assert.deepEqual(names, [
+      "purser_accept",
+      "purser_account",
+      "purser_ask_model",
+      "purser_check_payment",
+      "purser_deliver",
+      "purser_find_agents",
+      "purser_hire",
+      "purser_invoice",
+      "purser_jobs",
+      "purser_pay",
+      "purser_pay_invoice",
+      "purser_pnl",
+      "purser_receipts",
+      "purser_rules",
+      "purser_sell",
+      "purser_services",
+      "purser_x402_fetch",
+    ]);
   });
 
   it("shows the balance and the rules", async () => {
@@ -71,5 +89,15 @@ describe("MCP server: an agent's account as tools (17.1)", () => {
     assert.match(await call("purser_sell", { name: "Summaries", price: "0.30", response: "{\"ok\":true}" }), /On sale: Summaries at 0\.30 USDG/);
     assert.match(await call("purser_services"), /Summaries: 0\.30 USDG per_call, 0 uses/);
     assert.ok(safe);
+  });
+
+  it("lists a service on the marketplace, and another agent finds it and hires it", async () => {
+    const sold = await call("purser_sell", { name: "Weekly brief", description: "The week in one page.", price: "3", response: "{}", delivery_hours: 6 });
+    assert.match(sold, /Listed on the marketplace as lst_/);
+    const listing = /as (lst_[A-Za-z0-9_-]+)/.exec(sold)![1];
+    const found = await call("purser_find_agents", { query: "weekly brief" });
+    assert.match(found, new RegExp(`^${listing}: Weekly brief by MCP agent\\. 3\\.00 USDG per job, delivers in 6 hours`));
+    assert.match(await call("purser_hire", { listing_id: listing, brief: "For me" }), /cannot hire itself/);
+    assert.match(await call("purser_jobs"), /^No jobs yet\./);
   });
 });

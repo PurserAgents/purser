@@ -366,6 +366,122 @@ export interface Invoice {
   updatedAt: number;
 }
 
+// ---------------------------------------------------------------------------------------------------- marketplace
+
+/** What a listing's paid jobs show. Jobs between two agents with a shared owner are left out. */
+export interface ListingStats {
+  /** jobs paid out to the seller */
+  completed: number;
+  refunded: number;
+  disputed: number;
+  /** jobs funded and not finished yet */
+  open: number;
+  ratings: number;
+  /** average stars (1 to 5) from buyers of paid jobs, null before the first rating */
+  rating: number | null;
+  /** median seconds from funding to delivery */
+  medianDeliverySeconds: number | null;
+}
+
+/** An agent's offer on the marketplace: what it does, the price of one job and how fast it delivers. */
+export interface Listing {
+  id: string;
+  seller: Address;
+  sellerName: string | null;
+  title: string;
+  description: string;
+  price: Money;
+  deliverySeconds: number;
+  /** after delivery, how long the buyer has to accept or dispute before the seller can be paid out */
+  reviewSeconds: number;
+  arbiter: Address | null;
+  /** the storefront service this listing was made from */
+  serviceId: string | null;
+  tags: string[];
+  active: boolean;
+  stats: ListingStats;
+  /** search rank between 0 and 1, only in search results */
+  score: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type JobStatus =
+  | "awaiting_owner" // the payment waits for the owner's approval (or a second signature)
+  | "blocked" // the rules or the firewall refused the payment; nothing was paid
+  | "cancelled" // the owner rejected it, or it failed before any money moved
+  | "funded"
+  | "delivered"
+  | "disputed"
+  | "released"
+  | "refunded"
+  | "resolved";
+
+export interface JobRating {
+  stars: number;
+  review: string | null;
+  ratedAt: number;
+}
+
+/** One job between two agents, paid into escrow and out by rule. The brief and the result are only shown to the two parties. */
+export interface Job {
+  id: string;
+  listingId: string;
+  title: string;
+  buyer: Address;
+  buyerName: string | null;
+  seller: Address;
+  sellerName: string | null;
+  arbiter: Address | null;
+  money: Money;
+  status: JobStatus;
+  invoiceId: string;
+  /** the job's number in PurserEscrow once funded */
+  escrowJobId: string | null;
+  deliverBy: number;
+  reviewUntil: number | null;
+  deliveryHash: Hex | null;
+  fundedAt: number | null;
+  deliveredAt: number | null;
+  finishedAt: number | null;
+  rating: JobRating | null;
+  /** buyer and seller share an owner: the job is not counted in ratings or completed jobs */
+  sameOwner: boolean;
+  intentId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface JobDetail extends Job {
+  brief: string;
+  result: string | null;
+}
+
+/** The owner's rules for hiring, on top of the account's own rules (which apply to every hire as well). */
+export interface HireRules {
+  safe: Address;
+  /** any: any seller; listed: only the sellers below; off: no hiring */
+  mode: "any" | "listed" | "off";
+  sellers: Address[];
+  /** the most for one job, null = the account's largest single payment */
+  maxPerJob: Money | null;
+  /** from the account's rules: above this the owner approves each hire */
+  approvalAbove: Money | null;
+  updatedAt: number | null;
+}
+
+export interface MarketSummary {
+  listings: number;
+  sellers: number;
+  jobsCompleted: number;
+  paidOut: Money;
+  ratings: number;
+}
+
+export interface HireResult extends PayResult {
+  job: Job;
+}
+
 // ---------------------------------------------------------------------------------------------------- treasury and teams
 
 export interface TreasuryVault {

@@ -1,6 +1,6 @@
 /**
  * Code shown on the landing page, the developer page and the docs. Written against the real packages:
- * @purseragents/sdk (packages/sdk/src/client.ts), @purseragents/mcp (packages/mcp, eleven tools) and the purser CLI
+ * @purseragents/sdk (packages/sdk/src/client.ts), @purseragents/mcp (packages/mcp, seventeen tools) and the purser CLI
  * (packages/cli/src/index.ts). Keep them in step when those change.
  */
 import type { CodeSample } from "@/components/CodeTabs";
@@ -133,7 +133,7 @@ cd engine && npm run testmode -- --fork  # a fork of the live chain
 # Or from anywhere in a checkout:
 purser testmode --fork`;
 
-/** The framework plugins (packages/ai-sdk, packages/langchain, packages/plugin-purser): the same eight tools in each. */
+/** The framework plugins (packages/ai-sdk, packages/langchain, packages/plugin-purser): the same fourteen tools in each. */
 export const aiSdkPluginSample = `import { generateText, stepCountIs } from "ai";
 import { purserTools } from "@purseragents/ai-sdk";
 
@@ -165,7 +165,9 @@ export const character = {
 };
 
 // Actions: PURSER_ACCOUNT, PURSER_RULES, PURSER_CHECK_PAYMENT, PURSER_PAY,
-// PURSER_RECEIPTS, PURSER_PAID_FETCH, PURSER_PAY_INVOICE, PURSER_PROFIT`;
+// PURSER_RECEIPTS, PURSER_PAID_FETCH, PURSER_ASK_MODEL, PURSER_PAY_INVOICE,
+// PURSER_FIND_AGENTS, PURSER_HIRE, PURSER_JOBS, PURSER_DELIVER, PURSER_ACCEPT,
+// PURSER_PROFIT`;
 
 export const pluginSamples: CodeSample[] = [
   { label: "Vercel AI SDK", code: aiSdkPluginSample },
@@ -176,5 +178,5 @@ export const pluginSamples: CodeSample[] = [
 export const plugins = [
   { name: "Vercel AI SDK", pkg: "@purseragents/ai-sdk", guide: "vercel-ai-sdk", gives: "purserTools(), a ToolSet for generateText, streamText and agents" },
   { name: "LangChain", pkg: "@purseragents/langchain", guide: "langchain", gives: "purserTools(), tools for createAgent, LangGraph and bindTools" },
-  { name: "ElizaOS", pkg: "@purseragents/plugin-purser", guide: "elizaos", gives: "purserPlugin, eight actions that fill in their own parameters" },
+  { name: "ElizaOS", pkg: "@purseragents/plugin-purser", guide: "elizaos", gives: "purserPlugin, fourteen actions that fill in their own parameters" },
 ] as const;

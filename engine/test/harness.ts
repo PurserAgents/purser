@@ -128,10 +128,10 @@ export const defaultRule: RuleInput = {
 /** Creates an account as the test owner through the factory, funds it with test USDG and ETH, indexes it. */
 export async function createAccount(
   w: World,
-  opts: { config?: Partial<AccountConfig>; rule?: RuleInput; ethRule?: RuleInput; allow?: Address[]; fund?: bigint; name?: string; salt?: bigint } = {},
+  opts: { config?: Partial<AccountConfig>; rule?: RuleInput; ethRule?: RuleInput; allow?: Address[]; fund?: bigint; name?: string; salt?: bigint; owners?: Address[] } = {},
 ): Promise<Address> {
   const { predictedSafe, tx } = await prepareCreate(w.ctx, {
-    owners: [w.owner.address],
+    owners: opts.owners ?? [w.owner.address],
     creator: w.owner.address,
     salt: opts.salt ?? BigInt(Math.floor(Math.random() * 1e9)),
     setup: {
@@ -151,7 +151,7 @@ export async function createAccount(
   await fundUsdg(w, predictedSafe, opts.fund ?? usdg(10_000));
   await w.rpc("anvil_setBalance", [predictedSafe, "0x" + (10n ** 18n).toString(16)]);
   await indexOnce(w.ctx);
-  upsertAccount(w.ctx, { safe: predictedSafe, name: opts.name ?? "Test agent", owners: [w.owner.address], kind: "research" });
+  upsertAccount(w.ctx, { safe: predictedSafe, name: opts.name ?? "Test agent", owners: opts.owners ?? [w.owner.address], kind: "research" });
   return predictedSafe;
 }
 

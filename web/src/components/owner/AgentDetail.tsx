@@ -16,6 +16,7 @@ import { RulesList, daysText, dollarRule, hoursText } from "../Rules";
 import { Card, EmptyState, Loading, Meter, initials } from "../ui";
 import { ActionStatus, useAction } from "./Action";
 import { OwnerFrame, type OwnerView } from "./Frame";
+import { HiringCard, JobsCard } from "./Hiring";
 
 const REFRESH = ["account", "receipt", "intent", "approval"] as const;
 
@@ -161,6 +162,11 @@ function Detail({ a, owner, reload }: { a: Account; owner: OwnerView; reload(): 
         <div className="dash">
           <RulesCard a={a} owner={owner} done={done} />
         </div>
+      </div>
+
+      <div className="cols-main">
+        <JobsCard safe={a.safe} />
+        <HiringCard safe={a.safe} />
       </div>
 
       <div className="grid-2">

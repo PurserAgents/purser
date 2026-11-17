@@ -7,6 +7,7 @@ import "./recurring.ts";
 import "./storefront.ts";
 import "./splits.ts";
 import "./invoices.ts";
+import "./market.ts";
 import "./demo.ts";
 import "./watchdog.ts";
 import "./auditApi.ts";

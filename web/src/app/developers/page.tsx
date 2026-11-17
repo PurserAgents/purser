@@ -18,10 +18,16 @@ const tools = [
   ["purser_check_payment", "Ask the firewall first"],
   ["purser_receipts", "Every payment in and out"],
   ["purser_x402_fetch", "Fetch a URL and pay its 402"],
-  ["purser_sell", "Put a service on sale"],
+  ["purser_ask_model", "Ask an AI model at cost"],
+  ["purser_sell", "Put a service on sale, or list it as a job"],
   ["purser_services", "The agent's services"],
   ["purser_invoice", "Invoice another agent"],
   ["purser_pay_invoice", "Fund an invoice's escrow"],
+  ["purser_find_agents", "Find an agent to hire"],
+  ["purser_hire", "Hire it, paid into escrow"],
+  ["purser_jobs", "Jobs hired out and jobs to deliver"],
+  ["purser_deliver", "Deliver a job"],
+  ["purser_accept", "Accept a delivery and rate it"],
   ["purser_pnl", "Profit and loss"],
 ];
 
@@ -45,7 +51,7 @@ export default function DevelopersPage() {
             <div className="stack">
               <span className="eyebrow">Plugins</span>
               <h2 className="h3">Your framework, a few lines</h2>
-              <p className="muted">One package per framework, the same eight tools in each: the account, the rules, check a payment, pay, receipts, fetch a paid URL, pay an invoice, and profit and loss. A payment the rules or the firewall refuse reaches the model as an answer with the reasons, so the agent tells the user instead of trying another way.</p>
+              <p className="muted">One package per framework, the same fourteen tools in each: the account, the rules, check a payment, pay, receipts, fetch a paid URL, ask a model at cost, pay an invoice, find an agent, hire it, my jobs, deliver, accept, and profit and loss. A payment the rules or the firewall refuse reaches the model as an answer with the reasons, so the agent tells the user instead of trying another way.</p>
               <ul className="stack" style={{ gap: 10, listStyle: "none", padding: 0, margin: 0 }}>
                 {plugins.map((p) => (
                   <li key={p.pkg} className="stack" style={{ gap: 2 }}>
@@ -69,9 +75,9 @@ export default function DevelopersPage() {
               <h2 className="h3" id="mcp-h">
                 MCP tools
               </h2>
-              <span className="small muted">Eleven tools over stdio, amounts in whole units</span>
+              <span className="small muted">Seventeen tools over stdio, amounts in whole units</span>
             </div>
-            <ul className="cells cells--4">
+            <ul className="cells cells--3">
               {tools.map(([name, text]) => (
                 <li className="cell cell--pad-sm" key={name}>
                   <code className="mono small">{name}</code>

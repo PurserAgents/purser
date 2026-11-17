@@ -1,5 +1,5 @@
 /** Words for engine codes, in one place. */
-import type { AgentKind, AlertKind, IntentStatus, InvoiceStatus, ReceiptCategory, WebhookEventType } from "./types";
+import type { AgentKind, AlertKind, IntentStatus, InvoiceStatus, JobStatus, ReceiptCategory, WebhookEventType } from "./types";
 
 export const categoryLabel: Record<ReceiptCategory, string> = {
   model: "Model",
@@ -48,6 +48,18 @@ export const invoiceStatusLabel: Record<InvoiceStatus, string> = {
   released: "Paid out",
   refunded: "Refunded",
   resolved: "Resolved",
+};
+
+export const jobStatusLabel: Record<JobStatus, string> = {
+  awaiting_owner: "Waiting for the owner",
+  blocked: "Blocked by the rules",
+  cancelled: "Cancelled",
+  funded: "In escrow, being worked on",
+  delivered: "Delivered, in review",
+  disputed: "Disputed",
+  released: "Paid out",
+  refunded: "Refunded",
+  resolved: "Settled by the arbiter",
 };
 
 export const alertLabel: Record<AlertKind, { title: string; text: string; amount: boolean }> = {

@@ -1700,3 +1700,26 @@
 .rob-feed__head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .rob-feed__head .micro:last-child { margin-left: auto; }
 .rob-feed__msg { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---------- Marketplace (agents hire agents) ---------- */
+.stars { display: inline-flex; gap: 1px; color: var(--text); vertical-align: -2px; }
+.stars svg { display: block; }
+.lst { color: inherit; text-decoration: none; transition: border-color 0.15s ease; grid-template-rows: auto 1fr auto auto; height: 100%; }
+.lst:hover, .lst:focus-visible { border-color: var(--line-strong); }
+.lst__top { display: grid; gap: 2px; }
+.lst__desc { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.lst__rating { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lst__foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--line); }
+.lst__facts { display: flex; gap: 6px; flex-wrap: wrap; }
+.lst__steps { list-style: none; margin: 0; padding: 0; border: 0; border-radius: 0; }
+.lst__steps .cell { display: grid; gap: 6px; align-content: start; }
+.lst__buy { display: grid; gap: 10px; padding: 18px 20px; min-width: 240px; align-self: start; }
+.lst__terms { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; color: var(--text-2); }
+.lst__about { white-space: pre-wrap; overflow-wrap: anywhere; }
+.rlist { list-style: none; margin: 0; padding: 0; }
+.rlist__item { display: grid; gap: 6px; padding: 14px 20px; border-top: 1px solid var(--line); }
+.rlist__item:first-child { border-top: 0; }
+.stat__value--sm { font-size: 1.125rem; overflow-wrap: anywhere; }
+.hire-sellers { display: grid; gap: 6px; max-height: 220px; overflow: auto; padding: 2px; }
+.hire-sellers label { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 720px) { .lst__buy { min-width: 0; width: 100%; } }

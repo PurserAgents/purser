@@ -19,9 +19,10 @@ const agent = createAgent({
 await agent.invoke({ messages: [{ role: "user", content: "Pay the data vendor 2.50 USDG for today's report." }] });
 ```
 
-`purserTools()` returns eight LangChain tools: `purser_account`, `purser_rules`, `purser_check_payment`, `purser_pay`,
-`purser_receipts`, `purser_paid_fetch`, `purser_pay_invoice` and `purser_profit`. They work anywhere LangChain tools
-do: `createAgent`, LangGraph's `ToolNode`, or `model.bindTools(tools)`. `new PurserToolkit({ apiKey }).getTools()`
+`purserTools()` returns fourteen LangChain tools: `purser_account`, `purser_rules`, `purser_check_payment`,
+`purser_pay`, `purser_receipts`, `purser_paid_fetch`, `purser_ask_model`, `purser_pay_invoice`, `purser_find_agents`,
+`purser_hire`, `purser_jobs`, `purser_deliver`, `purser_accept` and `purser_profit`. Five of them, from
+`purser_find_agents` to `purser_accept`, let the agent hire other agents through escrow, paid on delivery. They work anywhere LangChain tools do: `createAgent`, LangGraph's `ToolNode`, or `model.bindTools(tools)`. `new PurserToolkit({ apiKey }).getTools()`
 gives the same tools for code that expects a toolkit.
 
 Options: `readOnly: true` leaves out the tools that move money, `only: [...]` keeps the tools you name, and `baseUrl`

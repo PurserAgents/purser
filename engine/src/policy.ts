@@ -21,6 +21,8 @@ export interface PolicyResult {
   cosigner: Address | null;
   firewall: Address | null;
   agent: Address;
+  /** the owner only allows listed payees (the module's address allowlist) */
+  payeeAllowlist: boolean;
 }
 
 const block = (code: string, title: string, detail: string): VerdictReason => ({ code, severity: "block", title, detail });
@@ -43,6 +45,7 @@ export async function checkPolicy(ctx: Ctx, safe: Address, spends: Spend[], opts
     cosigner: sameAddress(cfg.cosigner, ZERO) ? null : cfg.cosigner,
     firewall: sameAddress(cfg.firewall, ZERO) ? null : cfg.firewall,
     agent: cfg.agent,
+    payeeAllowlist: cfg.payeeAllowlist,
   };
   if (!a.initialized) {
     reasons.push(block("not_account", "Not a Purser account", "This address has no Purser account."));

@@ -8,7 +8,7 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { Purser, type PayResult, type Verdict } from "@purseragents/sdk";
+import { Purser, purserTools, runPurserTool, type PayResult, type Verdict } from "@purseragents/sdk";
 import { z } from "zod";
 import { formatUnits, parseUnits } from "./units.js";
 
@@ -139,11 +139,20 @@ export function createServer(purser: Purser) {
     {
       title: "Sell a service",
       description: "Put a service on sale over x402. Buyers pay into this account; returns the paid URL.",
-      inputSchema: { name: z.string(), description: z.string().default(""), price: z.string().describe('Price in USDG, e.g. "0.25"'), pricing: z.enum(["per_call", "per_minute", "subscription"]).default("per_call"), upstream: z.string().url().optional().describe("Where the work is done"), response: z.string().optional().describe("A fixed answer, if there is no upstream") },
+      inputSchema: {
+        name: z.string(),
+        description: z.string().default(""),
+        price: z.string().describe('Price in USDG, e.g. "0.25"'),
+        pricing: z.enum(["per_call", "per_minute", "subscription"]).default("per_call"),
+        upstream: z.string().url().optional().describe("Where the work is done"),
+        response: z.string().optional().describe("A fixed answer, if there is no upstream"),
+        delivery_hours: z.number().min(0.1).max(720).optional().describe("Also list it on the marketplace as a job other agents can hire, delivered within this many hours"),
+      },
     },
     async (a) => {
       const s = await purser.store.create({ name: a.name, description: a.description, price: parseUnits(a.price, 6), model: a.pricing, upstream: a.upstream, response: a.response });
-      return text(`On sale: ${s.name} at ${s.pricing.price.display} (${s.pricing.model}). Buyers call ${s.endpoint}`);
+      const listed = a.delivery_hours ? await purser.market.list({ serviceId: s.id, deliverySeconds: Math.round(a.delivery_hours * 3600) }) : null;
+      return text(`On sale: ${s.name} at ${s.pricing.price.display} (${s.pricing.model}). Buyers call ${s.endpoint}${listed ? `\nListed on the marketplace as ${listed.id}: agents can hire it for ${listed.price.display} a job, paid into escrow and released on delivery.` : ""}`);
     },
   );
 
@@ -172,6 +181,52 @@ export function createServer(purser: Purser) {
       const r = await purser.invoices.pay(id);
       return text(payText(r));
     },
+  );
+
+  // agents hire agents: the same tools (and words) as @purseragents/sdk's purserTools
+  const market = purserTools(purser, { only: ["purser_find_agents", "purser_hire", "purser_jobs", "purser_deliver", "purser_accept"] });
+  const run = (name: string) => async (a: Record<string, unknown>) => text(await runPurserTool(market.find((t) => t.name === name)!, a));
+  server.registerTool(
+    "purser_find_agents",
+    {
+      title: "Find an agent to hire",
+      description: "Search the marketplace for an agent that sells the work you need: price per job, delivery time, rating from paid jobs, completed jobs.",
+      inputSchema: {
+        query: z.string().optional().describe('What the work is, e.g. "competitor research"'),
+        sort: z.enum(["best", "price", "rating", "fastest", "jobs"]).default("best"),
+        max_price: z.string().optional().describe('The most for one job in USDG, e.g. "20"'),
+        max_hours: z.number().min(0).optional().describe("The longest delivery time in hours"),
+      },
+    },
+    run("purser_find_agents"),
+  );
+  server.registerTool(
+    "purser_hire",
+    {
+      title: "Hire an agent",
+      description: "Hire an agent for one job. The price goes into escrow from this account inside the owner's rules; the seller is paid when you accept, and you are refunded if nothing is delivered in time.",
+      inputSchema: { listing_id: z.string().describe("lst_... from purser_find_agents"), brief: z.string().describe("What the seller should deliver"), context: z.string().optional().describe("The request that led to this hire. The firewall reads it.") },
+    },
+    run("purser_hire"),
+  );
+  server.registerTool(
+    "purser_jobs",
+    { title: "My jobs", description: "Jobs this agent hired out and jobs it was hired for, with the brief to work on and the results delivered.", inputSchema: { role: z.enum(["all", "buyer", "seller"]).default("all") } },
+    run("purser_jobs"),
+  );
+  server.registerTool(
+    "purser_deliver",
+    { title: "Deliver a job", description: "Deliver the work for a job this agent was hired for. Paid out from escrow when the buyer accepts or the review window passes.", inputSchema: { job_id: z.string(), result: z.string().describe("The work, or a link to it") } },
+    run("purser_deliver"),
+  );
+  server.registerTool(
+    "purser_accept",
+    {
+      title: "Accept a delivery",
+      description: "Accept the work for a job this agent hired out: the escrow pays the seller. Rate it 1 to 5; only a paying buyer rates, once.",
+      inputSchema: { job_id: z.string(), stars: z.number().int().min(1).max(5).optional(), review: z.string().max(280).optional() },
+    },
+    run("purser_accept"),
   );
 
   server.registerTool(

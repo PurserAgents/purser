@@ -37,6 +37,16 @@ const template = {
   alerts: [{ kind: "payment_blocked", threshold: null }],
 };
 const entry = { id: "dir1", name: "Stub search service", url: "https://stub.service/search", payTo: SAFE, source: "x402", price: money("150000"), uses: 4242, payers: 2, deliveryRate: 0.97, refunds: 1, lastUsed: 1794397960 };
+const stats = { completed: 12, refunded: 1, disputed: 0, open: 2, ratings: 9, rating: 4.8, medianDeliverySeconds: 5400 };
+const listing = {
+  id: "lst_stub", seller: SAFE, sellerName: "Stub agent", title: "Stub competitor research", description: "Three rivals of a company, with their prices.", price: money("12000000"),
+  deliverySeconds: 21600, reviewSeconds: 86400, arbiter: null, serviceId: null, tags: ["research"], active: true, stats, score: 0.81, createdAt: 1794397960, updatedAt: 1794397960,
+};
+const job = {
+  id: "job_stub", listingId: "lst_stub", title: "Stub competitor research", buyer: HIDDEN, buyerName: null, seller: SAFE, sellerName: "Stub agent", arbiter: null, money: money("12000000"),
+  status: "released", invoiceId: "inv_stub", escrowJobId: "7", deliverBy: 1794419560, reviewUntil: 1794490000, deliveryHash: "0x" + "ab".repeat(32), fundedAt: 1794397970, deliveredAt: 1794403570,
+  finishedAt: 1794410000, rating: { stars: 5, review: "Clear and on time.", ratedAt: 1794410100 }, sameOwner: false, intentId: "int_stub", createdAt: 1794397960, updatedAt: 1794410100,
+};
 const engineData = {
   "/v1/health": { ok: true, mode: "local", chainId: 4663, block: "1", broadcast: true, contracts: {}, version: "0.1.0" },
   "/v1/config": {
@@ -55,6 +65,11 @@ const engineData = {
   "/v1/directory": { items: [entry], next: null },
   "/v1/accounts": { items: [{ safe: SAFE, name: "Stub agent", kind: "research", public: true }, { safe: HIDDEN, name: "Hidden agent", kind: "custom", public: false }], next: null },
   "/v1/demo/firewall": { steps: [], safe: null, startedAt: null, finishedAt: null },
+  "/v1/market": { listings: 1, sellers: 1, jobsCompleted: 12, paidOut: money("144000000"), ratings: 9 },
+  "/v1/market/listings": { items: [listing], next: null },
+  "/v1/market/listings/lst_stub": { ...listing, sellerStats: stats, ratings: [{ jobId: "job_stub", buyer: HIDDEN, buyerName: null, stars: 5, review: "Clear and on time.", ratedAt: 1794410100, money: money("12000000") }], services: [service] },
+  "/v1/market/jobs/job_stub": job,
+  [`/v1/accounts/${SAFE}/listings`]: { items: [listing], next: null },
   [`/v1/agents/${SAFE}/public`]: { safe: SAFE, name: "Stub agent", kind: "research", agentId: "7", earnedUsd: "9.00", spentUsd: "1.00", profitUsd: "8.00", receipts: [receipt], rules: [rule], services: [service], createdAt: 1794397960 },
 };
 
@@ -145,7 +160,7 @@ after(async () => {
 const docIds = [
   "overview", "quickstart", "agent-accounts", "identity", "rules", "approvals", "co-sign", "freeze", "recovery", "pocket",
   "agent-key", "x402", "models", "apps", "streams", "subscriptions",
-  "storefront", "pay-button", "splits", "invoices",
+  "storefront", "pay-button", "splits", "invoices", "marketplace",
   "firewall", "shield", "watchdog", "audit-trail",
   "treasury", "teams", "accounting",
   "plugins", "sdk", "mcp", "cli", "webhooks", "api", "guides", "test-mode",
@@ -164,8 +179,11 @@ const routes = {
   "/token": ["token"],
   "/economy": [],
   "/directory": [],
+  "/market": [],
+  "/market/lst_stub": [],
+  "/market/jobs/job_stub": [],
   "/leaderboard": [],
-  [`/agents/${SAFE}`]: ["store"],
+  [`/agents/${SAFE}`]: ["store", "hire"],
   "/docs": docIds,
   "/developers": ["sdk", "plugins", "mcp", "models", "sell", "webhooks", "test-mode"],
   "/developers/guides": [],
@@ -323,6 +341,34 @@ test("public pages show the engine's data", async () => {
   assert.match(pay, /http:\/\/stub-engine\/embed\.js/, "pay button points at the engine's public address");
 });
 
+test("agents hire agents: the marketplace, a listing, a job, the menu, the roadmap and the changelog", async () => {
+  const market = textOf((await get("/market")).body);
+  assert.match(market, /Stub competitor research/);
+  assert.match(market, /\$12\.00 per job|12\.00 USDG per job/);
+  assert.match(market, /4\.8 of 5 from 9 paid jobs/);
+  assert.match(market, /12 paid/);
+  const listingPage = textOf((await get("/market/lst_stub")).body);
+  assert.match(listingPage, /Sold by Stub agent/);
+  assert.match(listingPage, /Delivered within 6 hours/);
+  assert.match(listingPage, /Clear and on time\./);
+  assert.match(listingPage, /purser_hire/);
+  assert.match(listingPage, /Stub report/, "the seller's storefront");
+  const jobPage = textOf((await get("/market/jobs/job_stub")).body);
+  assert.match(jobPage, /Paid out/);
+  assert.match(jobPage, /In escrow/);
+  assert.match(jobPage, /only shown to the two agents and their owners/);
+  assert.equal((await get("/market/lst_nothing")).status, 404);
+  assert.equal((await get("/market/jobs/job_nothing")).status, 404);
+  assert.match(textOf((await get(`/agents/${SAFE}`)).body), /Hire this agent/);
+  assert.match((await get("/")).body, /href="\/market"/, "the Network menu links the marketplace");
+  const roadmap = (await get("/roadmap")).body;
+  assert.match(roadmap.split('id="hire"')[1].split('id="people"')[0], /rm-pill--live/, "the hire stage is live");
+  assert.match(roadmap.split('id="people"')[1].split('id="stocks"')[0], /rm-pill--next/, "the people stage is next");
+  const changelog = textOf((await get("/changelog")).body);
+  assert.match(changelog, /0\.10\.0/);
+  assert.match(changelog, /Agents hire agents/);
+});
+
 test("firewall page without test mode says how to run it", async () => {
   const text = textOf((await get("/firewall")).body);
   assert.match(text, /Watch an attack get blocked/);
@@ -421,7 +467,7 @@ test("when the engine stops answering, pages show empty states and never invent 
   assert.match(textOf((await get("/directory")).body), /No services yet/);
   assert.match(textOf((await get("/templates")).body), /Templates load from the engine/);
   for (const route of Object.keys(routes)) {
-    if (route.startsWith("/agents/")) continue;
+    if (route.startsWith("/agents/") || route.startsWith("/market/")) continue;
     const page = await get(route);
     assert.equal(page.status, 200, route);
     assert.doesNotMatch(textOf(page.body), forbiddenText, route + " says sample/demo/example/illustration");

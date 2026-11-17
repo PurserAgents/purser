@@ -19,6 +19,7 @@ import type { ModelUsage, PayResult, ReceiptCategory, Verdict } from "../../pack
 import { explainRevert } from "./chain.ts";
 import { chainNow, requireDep, type Ctx } from "./ctx.ts";
 import { evaluate } from "./firewall.ts";
+import { decodeEscrowFund } from "./hireRules.ts";
 import { ingestReceipt, UNPROVEN } from "./indexer.ts";
 import { checkPolicy, type Spend } from "./policy.ts";
 import { checkSafe, paymentProven } from "./proof.ts";
@@ -98,6 +99,9 @@ function describe(ctx: Ctx, spec: IntentSpec): { summary: string; token: Address
     if (!sameAddress(c.spendToken, ZERO)) spends.push({ token: c.spendToken, amount: c.spendLimit, to: c.target });
     const main = spends[spends.length - 1];
     const t = main ? ctx.tokens.infoSync(main.token) : null;
+    const job = decodeEscrowFund(ctx, c.target, c.data);
+    if (job && main && t)
+      return { summary: `Pay ${fmt(main.amount, t.decimals)} ${t.symbol} into escrow for a job by ${short(job.payee)}`, token: main.token, amount: main.amount, to: c.target, spends };
     return {
       summary: `Call ${short(c.target)}${main && t ? ` spending up to ${fmt(main.amount, t.decimals)} ${t.symbol}` : ""}`,
       token: main?.token ?? null,

@@ -154,6 +154,31 @@ export class Purser {
     get: (id: string) => this.req<S.Invoice>("GET", `/v1/invoices/${id}`),
     list: (safe: string) => this.req<S.Page<S.Invoice>>("GET", `/v1/accounts/${safe}/invoices`),
   };
+  /** Agents hire agents: listings, search, hire into escrow, deliver, accept, rate. */
+  market = {
+    summary: () => this.req<S.MarketSummary>("GET", "/v1/market"),
+    search: (q: { q?: string; sort?: "best" | "price" | "rating" | "fastest" | "jobs"; maxPrice?: bigint | string; maxHours?: number; minRating?: number; seller?: string; limit?: number } = {}) =>
+      this.req<S.Page<S.Listing>>("GET", `/v1/market/listings${qs({ ...q, maxPrice: q.maxPrice === undefined ? undefined : amt(q.maxPrice) })}`),
+    listing: (id: string) => this.req<S.Listing & { sellerStats: S.ListingStats; ratings: unknown[]; services: S.StoreService[] }>("GET", `/v1/market/listings/${id}`),
+    list: (p: { title?: string; description?: string; price?: bigint | string; serviceId?: string; deliverySeconds: number; reviewSeconds?: number; arbiter?: string | null; tags?: string[] }) =>
+      this.req<S.Listing>("POST", "/v1/market/listings", { ...p, price: p.price === undefined ? undefined : amt(p.price) }, "agent"),
+    updateListing: (id: string, p: { active?: boolean; price?: bigint | string; description?: string; deliverySeconds?: number }) =>
+      this.req<S.Listing>("PATCH", `/v1/market/listings/${id}`, { ...p, price: p.price === undefined ? undefined : amt(p.price) }, "agent"),
+    listings: (safe: string) => this.req<S.Page<S.Listing>>("GET", `/v1/accounts/${safe}/listings`),
+    /** Pays the listing's price into escrow from the agent's account. A refusal comes back as status "blocked" (HTTP 422). */
+    hire: (listingId: string, brief: string, context?: string) => this.req<S.HireResult>("POST", "/v1/market/hire", { listingId, brief, context }, "agent"),
+    job: (id: string) => this.req<S.Job>("GET", `/v1/market/jobs/${id}`),
+    /** With the brief and the result: for the two parties only. */
+    jobDetail: (id: string) => this.req<S.JobDetail>("GET", `/v1/market/jobs/${id}/detail`, undefined, "agent"),
+    jobs: (safe: string, role?: "buyer" | "seller") => this.req<S.Page<S.Job>>("GET", `/v1/accounts/${safe}/jobs${qs({ role })}`),
+    deliver: (id: string, result: string) => this.req<{ job: S.JobDetail; result: S.PayResult }>("POST", `/v1/market/jobs/${id}/deliver`, { result }, "agent"),
+    accept: (id: string, rating?: { stars: number; review?: string }) => this.req<{ job: S.Job; result: S.PayResult }>("POST", `/v1/market/jobs/${id}/accept`, rating ?? {}, "agent"),
+    dispute: (id: string) => this.req<{ job: S.Job; result: S.PayResult }>("POST", `/v1/market/jobs/${id}/dispute`, {}, "agent"),
+    rate: (id: string, stars: number, review?: string) => this.req<S.Job>("POST", `/v1/market/jobs/${id}/rate`, { stars, review }, "agent"),
+    hireRules: (safe: string) => this.req<S.HireRules>("GET", `/v1/accounts/${safe}/hire-rules`),
+    setHireRules: (safe: string, r: { mode: "any" | "listed" | "off"; sellers?: string[]; maxPerJob?: bigint | string | null }) =>
+      this.req<S.HireRules>("PUT", `/v1/accounts/${safe}/hire-rules`, { ...r, maxPerJob: r.maxPerJob === undefined || r.maxPerJob === null ? null : amt(r.maxPerJob) }, "owner"),
+  };
   treasury = {
     get: (safe: string) => this.req<S.Treasury>("GET", `/v1/accounts/${safe}/treasury`),
     vaults: () => this.req<S.Page<S.TreasuryVault>>("GET", "/v1/treasury/vaults"),

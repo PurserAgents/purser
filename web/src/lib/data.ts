@@ -19,6 +19,10 @@ import type {
   LeaderboardEntry,
   Page,
   PublicAgent,
+  Job,
+  Listing,
+  ListingPage,
+  MarketSummary,
   ShieldView,
   StoreService,
   Template,
@@ -130,6 +134,23 @@ export function getDirectory(q: { source?: string; sort?: string; q?: string } =
   for (const [k, v] of Object.entries(q)) if (v) params.set(k, v);
   return load(`/v1/directory?${params}`, isPage<DirectoryEntry>(hasId));
 }
+
+export const getMarketSummary = () =>
+  load("/v1/market", (v): v is MarketSummary => isRecord(v) && typeof v.listings === "number" && typeof v.jobsCompleted === "number" && isRecord(v.paidOut));
+
+export function getListings(q: { q?: string; sort?: string; maxPrice?: string; maxHours?: string; minRating?: string } = {}) {
+  const params = new URLSearchParams({ limit: "60" });
+  for (const [k, v] of Object.entries(q)) if (v) params.set(k, v);
+  return load(`/v1/market/listings?${params}`, isPage<Listing>(hasId));
+}
+
+const isListingPage = (v: unknown): v is ListingPage => isRecord(v) && typeof v.id === "string" && isRecord(v.stats) && Array.isArray(v.ratings) && Array.isArray(v.services) && isRecord(v.sellerStats);
+const isJob = (v: unknown): v is Job => isRecord(v) && typeof v.id === "string" && typeof v.status === "string" && isRecord(v.money);
+const SAFE_ID = /^[A-Za-z0-9_-]{4,40}$/;
+
+export const getListing = (id: string) => (SAFE_ID.test(id) ? load(`/v1/market/listings/${id}`, isListingPage) : Promise.resolve(null));
+export const getJob = (id: string) => (SAFE_ID.test(id) ? load(`/v1/market/jobs/${id}`, isJob) : Promise.resolve(null));
+export const getListingsOf = (safe: string) => load(`/v1/accounts/${encodeURIComponent(safe)}/listings`, isPage<Listing>(hasId));
 
 /** A public agent page: the agent, `"private"` when it exists but is not listed (its owner has not opted in), or null when unknown. */
 export async function getPublicAgent(safe: string): Promise<PublicAgent | "private" | null> {

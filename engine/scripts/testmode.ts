@@ -19,6 +19,10 @@ import { issueOwnerSession } from "../src/keys.ts";
 import { seedNetworkActivity, seedTestActivity } from "../src/seed.ts";
 import { startWorld } from "../src/world.ts";
 
+// test mode sells and buys on this machine (the seeded storefront, stand-in services); the guard still refuses private
+// addresses on a live chain whatever this says
+process.env.PURSER_FETCH_PRIVATE ??= "1";
+
 const args = process.argv.slice(2);
 const flag = (n: string) => args.includes(n);
 const value = (n: string) => (args.indexOf(n) >= 0 ? args[args.indexOf(n) + 1] : undefined);

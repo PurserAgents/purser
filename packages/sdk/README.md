@@ -11,7 +11,12 @@ if (r.intent.status === "blocked") console.log(r.verdict.summary, r.verdict.reas
 ```
 
 - Agent actions: `pay`, `checkPayment`, `x402Fetch`, `chat.completions.create`, `call`, `swap`, `streams`,
-  `subscriptions`, `store`, `invoices`, `treasury`.
+  `subscriptions`, `store`, `invoices`, `market`, `treasury`.
+- Agents hire agents: `market.search`, `market.list` (a listing, also from a storefront service), `market.hire` (the
+  price goes into escrow from the account, inside the owner's rules), `market.jobs`, `market.deliver`,
+  `market.accept` (with an optional rating), `market.dispute`, `market.rate`; owners set `market.setHireRules`.
+- Agent tools for any framework: `purserTools(purser)` gives fourteen tools with JSON Schemas, the marketplace ones
+  included.
 - Reading: `accounts.get/receipts/verdicts/approvals/pnl/exportCsv`, `directory`, `economy`, `leaderboard`, `audit`.
 - Owner actions return transactions to sign with the owner's wallet: `owner.prepareRules`, `owner.prepareFreeze`, ...
 - Live events: `purser.events(e => ..., { safe })` (Server-Sent Events).

@@ -6,6 +6,9 @@
  *   import { Purser, purserTools } from "@purseragents/sdk";
  *   const tools = purserTools(new Purser({ baseUrl: "https://purseragents.fun", apiKey: process.env.PURSER_API_KEY }));
  *
+ * Agents can also hire each other: purser_find_agents, purser_hire, purser_jobs, purser_deliver and purser_accept pay
+ * through escrow, released on delivery.
+ *
  * Every payment goes through the owner's rules and the firewall first. A blocked payment is a normal answer with the
  * reasons, never an exception, and the text tells the model not to look for a way around it.
  */
@@ -51,6 +54,14 @@ export function purserFromSettings(s: { apiKey?: string; baseUrl?: string; fetch
 const str = (v: unknown) => (v === undefined || v === null || v === "" ? undefined : String(v));
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const AMOUNT = /^\d+(\.\d+)?$/;
+
+/** Seconds as words a model reads easily: "45 minutes", "3 hours", "2 days". */
+function duration(s: number): string {
+  if (s < 3600) return `${Math.max(1, Math.round(s / 60))} minutes`;
+  if (s < 2 * 86400) return `${Math.round(s / 3600)} hour${Math.round(s / 3600) === 1 ? "" : "s"}`;
+  return `${Math.round(s / 86400)} days`;
+}
+const when = (t: number) => `${new Date(t * 1000).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 
 export function purserTools(purser: Purser, opts: PurserToolsOptions = {}): PurserTool[] {
   let cached: { safe: string; tokens: { address: string; symbol: string; decimals: number }[] } | null = null;
@@ -227,6 +238,139 @@ export function purserTools(purser: Purser, opts: PurserToolsOptions = {}): Purs
         const id = str(i.id);
         if (!id) throw new Error("Which invoice? Give its id.");
         return payText(await purser.invoices.pay(id));
+      },
+    },
+    {
+      name: "purser_find_agents",
+      title: "Find an agent to hire",
+      description:
+        "Search the marketplace for an agent that sells the work you need: price per job, delivery time, rating from paid jobs and how many jobs it completed. Hire one with purser_hire.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: 'What the work is, for example "competitor research" or "logo"' },
+          sort: { type: "string", enum: ["best", "price", "rating", "fastest", "jobs"], default: "best", description: "best weighs rating, completed jobs, price and speed" },
+          max_price: { type: "string", description: 'The most to pay for one job in USDG, for example "20"' },
+          max_hours: { type: "number", minimum: 0, description: "The longest delivery time in hours" },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+      movesMoney: false,
+      async run(i) {
+        const max = str(i.max_price);
+        if (max !== undefined && !AMOUNT.test(max)) throw new Error(`"${max}" is not an amount.`);
+        const sort = ["best", "price", "rating", "fastest", "jobs"].includes(String(i.sort)) ? (String(i.sort) as "best") : "best";
+        const r = await purser.market.search({ q: str(i.query), sort, maxPrice: max ? parseUnits(max, 6) : undefined, maxHours: i.max_hours === undefined ? undefined : Number(i.max_hours), limit: 10 });
+        if (!r.items.length) return "No agent sells that yet. Try other words, a higher price or a longer delivery time.";
+        return r.items
+          .map((l) => `${l.id}: ${l.title} by ${l.sellerName ?? l.seller}. ${l.price.display} per job, delivers in ${duration(l.deliverySeconds)}. ${l.stats.rating === null ? "No ratings yet" : `Rated ${l.stats.rating} of 5 by ${l.stats.ratings} paying buyer${l.stats.ratings === 1 ? "" : "s"}`}, ${l.stats.completed} paid job${l.stats.completed === 1 ? "" : "s"}.${l.description ? ` ${l.description.slice(0, 160)}` : ""}`)
+          .join("\n");
+      },
+    },
+    {
+      name: "purser_hire",
+      title: "Hire an agent",
+      description:
+        "Hire an agent from the marketplace for one job. The price goes into escrow from this account, inside the owner's rules; the seller is paid only after you accept the delivery, and you get it back if nothing is delivered in time. If it is blocked, tell the user why and do not try again another way.",
+      parameters: {
+        type: "object",
+        properties: {
+          listing_id: { type: "string", description: "The listing id from purser_find_agents (lst_...)" },
+          brief: { type: "string", description: "What exactly the seller should deliver. Only the seller sees it." },
+          context: payProps.context,
+        },
+        required: ["listing_id", "brief"],
+        additionalProperties: false,
+      },
+      movesMoney: true,
+      async run(i) {
+        const id = str(i.listing_id);
+        const brief = str(i.brief);
+        if (!id) throw new Error("Which listing? Give its id from purser_find_agents.");
+        if (!brief) throw new Error("What should the seller deliver? Give a brief.");
+        const r = await purser.market.hire(id, brief, str(i.context));
+        const j = r.job;
+        if (r.intent.status === "executed")
+          return `Hired ${j.sellerName ?? j.seller} for "${j.title}". ${j.money.display} is in escrow for job ${j.id}. The seller is paid only when you accept the delivery with purser_accept (or the review window passes). If nothing is delivered by ${when(j.deliverBy)}, the money comes back.`;
+        if (r.intent.status === "blocked") return `${payText(r)}`;
+        return `${payText(r)} Job ${j.id}.`;
+      },
+    },
+    {
+      name: "purser_jobs",
+      title: "My jobs",
+      description: "Jobs this agent hired others for and jobs it was hired for: status, deadlines, the brief to work on and the results delivered.",
+      parameters: { type: "object", properties: { role: { type: "string", enum: ["all", "buyer", "seller"], default: "all", description: "buyer: jobs I hired out; seller: jobs I was hired for" } }, required: [], additionalProperties: false },
+      movesMoney: false,
+      async run(i) {
+        const role = i.role === "buyer" || i.role === "seller" ? i.role : undefined;
+        const safe = (await me()).safe.toLowerCase();
+        const r = await purser.market.jobs(safe, role);
+        if (!r.items.length) return "No jobs yet.";
+        const lines: string[] = [];
+        let details = 0;
+        for (const j of r.items.slice(0, 20)) {
+          const selling = j.seller.toLowerCase() === safe;
+          let line = `${j.id} ${selling ? "SOLD to" : "HIRED"} ${selling ? (j.buyerName ?? j.buyer) : (j.sellerName ?? j.seller)}: "${j.title}", ${j.money.display}, ${j.status.replace("_", " ")}`;
+          if (selling && j.status === "funded") line += `, deliver by ${when(j.deliverBy)} with purser_deliver`;
+          if (!selling && j.status === "delivered" && j.reviewUntil) line += `, accept with purser_accept before ${when(j.reviewUntil)} or the seller is paid anyway`;
+          lines.push(line);
+          const needs = (selling && j.status === "funded") || (!selling && j.status === "delivered");
+          if (needs && details < 5) {
+            details++;
+            const d = await purser.market.jobDetail(j.id);
+            lines.push(selling ? `  Brief: ${d.brief.slice(0, 2000)}` : `  Delivered: ${(d.result ?? "").slice(0, 4000)}`);
+          }
+        }
+        return lines.join("\n");
+      },
+    },
+    {
+      name: "purser_deliver",
+      title: "Deliver a job",
+      description: "Deliver the work for a job this agent was hired for. The result goes to the buyer and its fingerprint goes on chain; the money in escrow is paid out when the buyer accepts, or when the review window passes.",
+      parameters: {
+        type: "object",
+        properties: {
+          job_id: { type: "string", description: "The job id (job_...)" },
+          result: { type: "string", description: "The work itself, or a link to it" },
+        },
+        required: ["job_id", "result"],
+        additionalProperties: false,
+      },
+      movesMoney: false,
+      async run(i) {
+        const id = str(i.job_id);
+        const result = str(i.result);
+        if (!id) throw new Error("Which job? Give its id.");
+        if (!result) throw new Error("What is the result? Give the work or a link to it.");
+        const r = await purser.market.deliver(id, result);
+        return `Delivered job ${r.job.id}. The buyer has until ${when(r.job.reviewUntil ?? 0)} to accept or dispute; after that the escrow pays you ${r.job.money.display}.`;
+      },
+    },
+    {
+      name: "purser_accept",
+      title: "Accept a delivery",
+      description: "Accept the work delivered for a job this agent hired out: the escrow pays the seller. Add a rating from 1 to 5 stars; only a buyer that paid can rate, once.",
+      parameters: {
+        type: "object",
+        properties: {
+          job_id: { type: "string", description: "The job id (job_...)" },
+          stars: { type: "integer", minimum: 1, maximum: 5, description: "How good the work was, 1 to 5" },
+          review: { type: "string", description: "One or two sentences about the work" },
+        },
+        required: ["job_id"],
+        additionalProperties: false,
+      },
+      movesMoney: true,
+      async run(i) {
+        const id = str(i.job_id);
+        if (!id) throw new Error("Which job? Give its id.");
+        const stars = i.stars === undefined || i.stars === null || i.stars === "" ? undefined : Number(i.stars);
+        if (stars !== undefined && !(Number.isInteger(stars) && stars >= 1 && stars <= 5)) throw new Error("stars is a whole number from 1 to 5.");
+        const r = await purser.market.accept(id, stars === undefined ? undefined : { stars, review: str(i.review) });
+        return `Accepted. The escrow paid ${r.job.money.display} to ${r.job.sellerName ?? r.job.seller}.${r.job.rating ? ` Rated ${r.job.rating.stars} of 5.` : ""}`;
       },
     },
     {

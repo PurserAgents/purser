@@ -29,11 +29,26 @@ describe("purserTools: the framework-neutral agent tools", () => {
 
   const tool = (name: string, tools = purserTools(new Purser({ baseUrl: url, apiKey }))) => tools.find((t) => t.name === name)!;
 
-  it("has nine tools with JSON Schemas every framework accepts", () => {
+  it("has fourteen tools with JSON Schemas every framework accepts", () => {
     const tools = purserTools(new Purser({ baseUrl: "http://x", apiKey: "prs_x" }));
     assert.deepEqual(
       tools.map((t) => t.name),
-      ["purser_account", "purser_rules", "purser_check_payment", "purser_pay", "purser_receipts", "purser_paid_fetch", "purser_ask_model", "purser_pay_invoice", "purser_profit"],
+      [
+        "purser_account",
+        "purser_rules",
+        "purser_check_payment",
+        "purser_pay",
+        "purser_receipts",
+        "purser_paid_fetch",
+        "purser_ask_model",
+        "purser_pay_invoice",
+        "purser_find_agents",
+        "purser_hire",
+        "purser_jobs",
+        "purser_deliver",
+        "purser_accept",
+        "purser_profit",
+      ],
     );
     for (const t of tools) {
       assert.equal(t.parameters.type, "object");
@@ -41,7 +56,7 @@ describe("purserTools: the framework-neutral agent tools", () => {
       for (const r of t.parameters.required) assert.ok(t.parameters.properties[r], `${t.name}: ${r} is described`);
       assert.ok(t.description.length > 20);
     }
-    assert.deepEqual(tools.filter((t) => t.movesMoney).map((t) => t.name), ["purser_pay", "purser_paid_fetch", "purser_ask_model", "purser_pay_invoice"]);
+    assert.deepEqual(tools.filter((t) => t.movesMoney).map((t) => t.name), ["purser_pay", "purser_paid_fetch", "purser_ask_model", "purser_pay_invoice", "purser_hire", "purser_accept"]);
   });
 
   it("read-only and only= narrow the set", () => {
@@ -82,6 +97,26 @@ describe("purserTools: the framework-neutral agent tools", () => {
     assert.match(await runPurserTool(tool("purser_paid_fetch"), { url: "nope", max_amount: "1" }), /not a URL/);
     const bad = purserTools(new Purser({ baseUrl: url, apiKey: "prs_wrong" })).find((t) => t.name === "purser_account")!;
     assert.match(await runPurserTool(bad, {}), /^Purser could not do that/);
+  });
+
+  it("an agent finds another, hires it into escrow, the seller delivers, the buyer accepts", async () => {
+    const seller = await openTestAgent(world.engine.ctx, "Tools seller", "research", 0n);
+    const sellerSdk = new Purser({ baseUrl: url, apiKey: seller.apiKey });
+    const listing = await sellerSdk.market.list({ title: "Market summary", description: "One page on the week's markets.", price: 2_000_000n, deliverySeconds: 3600, reviewSeconds: 600, tags: ["summary"] });
+    const found = await tool("purser_find_agents").run({ query: "market summary", max_price: "5" });
+    assert.match(found, new RegExp(`^${listing.id}: Market summary by Tools seller\\. 2\\.00 USDG per job, delivers in 1 hour`));
+    assert.match(await runPurserTool(tool("purser_find_agents"), { max_price: "lots" }), /not an amount/);
+    const hired = await tool("purser_hire").run({ listing_id: listing.id, brief: "Summarise rates and earnings." });
+    assert.match(hired, /^Hired Tools seller for "Market summary"\. 2\.00 USDG is in escrow for job job_/);
+    const jobId = /job (job_[A-Za-z0-9_-]+)/.exec(hired)![1];
+    const sellerTools = purserTools(sellerSdk);
+    const todo = await sellerTools.find((t) => t.name === "purser_jobs")!.run({ role: "seller" });
+    assert.match(todo, /SOLD to .*funded, deliver by .* with purser_deliver\n  Brief: Summarise rates and earnings\./);
+    assert.match(await sellerTools.find((t) => t.name === "purser_deliver")!.run({ job_id: jobId, result: "Rates flat, earnings up." }), new RegExp(`^Delivered job ${jobId}\\.`));
+    assert.match(await tool("purser_jobs").run({ role: "buyer" }), /HIRED Tools seller: "Market summary", 2\.00 USDG, delivered, accept with purser_accept[\s\S]*Delivered: Rates flat, earnings up\./);
+    assert.match(await runPurserTool(tool("purser_accept"), { job_id: jobId, stars: 9 }), /from 1 to 5/);
+    assert.match(await tool("purser_accept").run({ job_id: jobId, stars: 5 }), /^Accepted\. The escrow paid 2\.00 USDG to Tools seller\./);
+    assert.equal((await sellerSdk.market.job(jobId)).status, "released");
   });
 
   it("profit and loss reads", async () => {

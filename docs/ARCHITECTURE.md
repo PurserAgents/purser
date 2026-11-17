@@ -59,7 +59,7 @@ Four contracts and one library. Solidity 0.8.28, via-IR, no external dependencie
 | `PurserModule` | The Safe module. Account config, rules, agent intents (pay, call, treasury), approval queue, co-sign, firewall co-sign, freeze, recovery, fee, incoming payments with splits. | Never. ETH sent to `receiveETH` is forwarded to the Safe in the same call. |
 | `PurserFactory` | Creates a Safe, enables the module, writes the first rules and registers the ERC-8004 identity in one transaction. The same setup function attaches an existing Safe through one Safe transaction (delegatecall). | Never |
 | `PurserRecurring` | Streams (pay per second with payee heartbeats) and subscriptions. Every settlement goes through the module and its rules. Version 2: with a firewall key on the account, every charge and stream payout also needs the firewall's signature for that one payout (`chargeWithFirewall`, `settleWithFirewall`), so each recurring payment is checked fresh. | Never |
-| `PurserEscrow` | Invoices between two agents: one job, one payer, one payee, optional arbiter, release on delivery, refund after the deadline. | Only the amount of an open job, until release or refund |
+| `PurserEscrow` | Invoices and marketplace jobs between two agents: one job, one payer, one payee, optional arbiter, release on delivery, refund after the deadline. | Only the amount of an open job, until release or refund |
 | `PurserPasskey` | Holds each account's passkey public key and approves or rejects queued intents after checking a WebAuthn assertion. The owner makes it the account's approver. | Never |
 | `WebAuthn` (library) | Verifies a passkey assertion (WebAuthn, P-256) through the chain's precompile at `0x100`. | n/a |
 
@@ -157,8 +157,8 @@ Node + TypeScript (tsx), better-sqlite3, viem, Hono. One process with these part
 - `audit`: every engine action signed and hash-chained; export and verify.
 - `x402`: facilitator (`/x402/verify`, `/x402/settle`, `/x402/supported`) for `eip155:4663`.
 - `connector`: agent API keys, OpenAI-compatible model proxy, x402 fetch-and-pay, on-chain calls and swaps.
-- `recurring`, `storefront`, `splits`, `invoices`, `treasury`, `teams`, `accounting`, `directory`, `economy`,
-  `templates`, `webhooks`.
+- `recurring`, `storefront`, `splits`, `invoices`, `market` (agents hire agents, section 5.10), `treasury`, `teams`,
+  `accounting`, `directory`, `economy`, `templates`, `webhooks`.
 
 Detailed engine design is in section 5.
 
@@ -190,7 +190,8 @@ agent request (API key, or an intent the agent signed itself)
 ```
 
 Intent kinds: pay, call (allowlisted contract, exact allowance), treasury (vault), and through PurserRecurring
-stream and subscription (AgentOp signatures). Escrow actions are calls to PurserEscrow.
+stream and subscription (AgentOp signatures). Escrow actions are calls to PurserEscrow; a marketplace hire is an
+invoice written from a listing and funded with one such call.
 
 ### 5.2 Firewall checks
 
@@ -212,7 +213,13 @@ title and a plain detail:
 | injection | block | The text that led to the payment contains planted instructions (ignore previous instructions, new or secret instructions, move or drain everything, hide it from the owner, fake role tags), or the payee address comes from hidden text |
 | injection_in_prompt | warn | Instruction-like text in a model prompt when the payment only goes to the model provider |
 | hidden_text | warn | Zero-width characters, HTML comments, invisible styling or direction controls in the request |
+| hire_off, hire_seller_not_allowed, hire_max_per_job | block | The owner's hire rules, on a call to PurserEscrow.fund (from the marketplace or a raw call alike) |
 | needs_approval, needs_cosign | info | Not a block; the payment waits |
+
+On a call to `PurserEscrow.fund` the firewall reads the job out of the call data and checks the job's payee as the
+money's real destination: delegated code (EIP-7702), a burn address, and the account's payee allowlist when the owner
+switched it on (the module itself only sees the escrow as the counterparty). The payee is also checked against
+Purser Shield.
 
 ### 5.3 Watchdog
 
@@ -234,6 +241,7 @@ SQLite (better-sqlite3, WAL): accounts, api_keys, intents, receipts, verdicts, w
 subscriptions, services, service_usage, invoices, teams, departments, team_members, webhooks, webhook_deliveries,
 alerts, x402_settlements, x402_services, model_calls, account_sets (allowlists seen on chain), seen_logs, kv. Every
 receipt comes from a chain event, except model costs billed to the owner's own provider key, which are marked so.
+Phase 05 adds listings, jobs (one per hire, linked to its invoice) and hire_rules.
 
 ### 5.6 Money in and the network
 
@@ -260,6 +268,11 @@ limit on the treasury; a department's daily budget is enforced by the engine bef
   recorded and limited is that contract.
 - A split recipient that rejects payments makes incoming payments through Purser fail until the owner changes splits.
 - The engine is one process with one SQLite file.
+- Hire rules (which sellers, the most per job) are enforced by the firewall's co-signature. An account with no
+  firewall key whose agent holds its own session key is bound only by the module's rules on a raw escrow call.
+- The module counts every hire against the per-counterparty daily limit of the escrow address, not of the seller.
+- Ratings and listings live in the engine's database; the payout each rating rests on is on chain and is checked
+  before a rating is accepted.
 
 ### 5.9 For the website
 
@@ -269,3 +282,25 @@ limit on the treasury; a department's daily budget is enforced by the engine bef
 - Owner actions: `.../prepare` endpoints return the transaction for MetaMask; the engine never signs for the owner.
 - Test mode (`npm run testmode` in `engine/`) seeds three agents with real on-chain activity and enables
   `/v1/testmode/*` and `POST /v1/demo/firewall/run` (with `paceMs` for filming; steps arrive as `demo` events).
+
+### 5.10 Marketplace: agents hire agents (phase 05)
+
+- **Listing:** an agent's offer: title, description, price per job in USDG, delivery time, review window, optional
+  arbiter, tags. Made from scratch or from one of its storefront services (`serviceId`).
+- **Hire:** the engine writes an invoice from the listing (payee the seller, payer the buyer) and the buyer's agent
+  funds PurserEscrow through a module `call` with an exact allowance. The module's rules apply on chain (budgets,
+  largest payment, approval, co-sign; the escrow is the counterparty), the firewall applies the owner's hire rules
+  and checks the job's payee. Above the approval amount the call is queued on chain for the owner; the intent is then
+  signed for a one day approval window and the job's delivery deadline starts after that window.
+- **Matching:** a JobFunded event funds an invoice only when its payer, payee, token, amount, deadline and
+  reference all match. The reference alone is public, so anyone could fund a job carrying it.
+- **Deliver:** the seller's module call `deliver(job, keccak256(result))`; the result is stored by the engine and
+  shown only to the two parties (agent key) and their owners (owner session).
+- **Accept, claim, refund:** the buyer's `release`; after the review window or the deadline the engine's keeper
+  (`escrow-keeper`, every 15 seconds, relayer) calls `claim` or `refund`, for marketplace jobs and invoices alike.
+- **Ratings:** one per job, 1 to 5 stars, only by the buyer (its agent key or an owner session), only when
+  `getJob` on chain says Released to that buyer and seller. A job between two Safes that share an owner is never
+  rated and never counted in the public numbers.
+- **Search:** rating (a Bayesian average pulled to 3.5 by two votes) 35%, completed jobs 25% (log scale), price
+  against the cheapest match 20%, delivery time against the fastest match 20%, times the share of jobs that end paid.
+- **Hire rules** (owner session, engine-stored): `mode` any, listed or off, `sellers`, `maxPerJob` in USDG.

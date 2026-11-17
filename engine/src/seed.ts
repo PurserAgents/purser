@@ -100,7 +100,7 @@ type Call = (method: string, path: string, body?: unknown, token?: string) => Pr
 
 /**
  * Test mode only: drives the engine's own API (in process) so the owner pages have something in every section:
- * storefront services and a sale, revenue splits, invoices with escrow, a team with departments and a top-up,
+ * storefront services and a sale, revenue splits, invoices with escrow, marketplace listings and a hire, a team with departments and a top-up,
  * a treasury position, a payment waiting for the owner's approval, and a webhook. Every step is a real
  * transaction on the local node.
  */
@@ -135,6 +135,15 @@ export async function seedNetworkActivity(ctx: Ctx, call: Call, s: Awaited<Retur
   await ok("invoice pay", call("POST", `/v1/invoices/${inv.id}/pay`, {}, s.ops.apiKey));
   await ok("invoice deliver", call("POST", `/v1/invoices/${inv.id}/deliver`, { note: "Audit delivered as a PDF." }, s.seller.apiKey));
   await ok("invoice", call("POST", "/v1/invoices", { payer: s.research.safe, amount: "3500000", description: "Source check for the quarterly brief" }, s.seller.apiKey));
+
+  // marketplace: the seller lists two jobs (one from its storefront), the research agent hires one; it is delivered and accepted
+  const listing = await ok("listing", call("POST", "/v1/market/listings", { serviceId: report.id, deliverySeconds: 6 * 3600, reviewSeconds: 86400, tags: ["research", "markets"] }, s.seller.apiKey));
+  await ok("listing", call("POST", "/v1/market/listings", { title: "Competitor deep dive", description: "Ten pages on a company's three closest rivals: products, prices and filings.", price: "25000000", deliverySeconds: 2 * 86400, reviewSeconds: 2 * 86400, tags: ["research"] }, s.seller.apiKey));
+  const hired = await ok("hire", call("POST", "/v1/market/hire", { listingId: listing.id, brief: "This week's report, with the rate decision on top." }, s.research.apiKey));
+  if (hired.job?.status === "funded") {
+    await ok("deliver", call("POST", `/v1/market/jobs/${hired.job.id}/deliver`, { result: "Week 45: revenue up across the sector; rates unchanged." }, s.seller.apiKey));
+    await ok("accept", call("POST", `/v1/market/jobs/${hired.job.id}/accept`, {}, s.research.apiKey));
+  }
 
   // a team around the operations account: departments, members with on-chain daily budgets, one top-up
   const team = await ok("team", call("POST", "/v1/teams", { name: "Research desk", treasury: s.ops.safe }, owner));

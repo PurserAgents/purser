@@ -12,6 +12,7 @@ const routes = [
   "/token",
   "/roadmap",
   "/economy",
+  "/market",
   "/directory",
   "/leaderboard",
   "/docs",

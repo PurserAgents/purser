@@ -46,9 +46,9 @@ describe("@purseragents/plugin-purser as an ElizaOS plugin", () => {
     await world?.stop();
   });
 
-  it("is a plugin with nine actions that declare their parameters", () => {
+  it("is a plugin with fourteen actions that declare their parameters", () => {
     assert.equal(purserPlugin.name, "purser");
-    assert.deepEqual(purserPlugin.actions!.map((a) => a.name), ["PURSER_ACCOUNT", "PURSER_RULES", "PURSER_CHECK_PAYMENT", "PURSER_PAY", "PURSER_RECEIPTS", "PURSER_PAID_FETCH", "PURSER_ASK_MODEL", "PURSER_PAY_INVOICE", "PURSER_PROFIT"]);
+    assert.deepEqual(purserPlugin.actions!.map((a) => a.name), ["PURSER_ACCOUNT", "PURSER_RULES", "PURSER_CHECK_PAYMENT", "PURSER_PAY", "PURSER_RECEIPTS", "PURSER_PAID_FETCH", "PURSER_ASK_MODEL", "PURSER_PAY_INVOICE", "PURSER_FIND_AGENTS", "PURSER_HIRE", "PURSER_JOBS", "PURSER_DELIVER", "PURSER_ACCEPT", "PURSER_PROFIT"]);
     const pay = action("PURSER_PAY");
     assert.deepEqual(pay.parameters!.filter((p) => p.required).map((p) => p.name), ["to", "amount", "memo"]);
     assert.ok(pay.similes!.includes("PAY"));

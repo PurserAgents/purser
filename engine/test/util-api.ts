@@ -10,6 +10,7 @@ export interface Api {
   get<T = any>(path: string, token?: string): Promise<{ status: number; body: T }>;
   post<T = any>(path: string, body?: unknown, token?: string): Promise<{ status: number; body: T }>;
   patch<T = any>(path: string, body?: unknown, token?: string): Promise<{ status: number; body: T }>;
+  put<T = any>(path: string, body?: unknown, token?: string): Promise<{ status: number; body: T }>;
   del<T = any>(path: string, token?: string): Promise<{ status: number; body: T }>;
 }
 
@@ -29,6 +30,7 @@ export function api(w: World): Api {
     get: (p, t) => call("GET", p, undefined, t),
     post: (p, b, t) => call("POST", p, b ?? {}, t),
     patch: (p, b, t) => call("PATCH", p, b ?? {}, t),
+    put: (p, b, t) => call("PUT", p, b ?? {}, t),
     del: (p, t) => call("DELETE", p, undefined, t),
   };
 }

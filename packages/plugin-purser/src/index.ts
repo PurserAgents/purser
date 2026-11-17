@@ -10,7 +10,8 @@
  *   };
  *
  * The agent gets actions to read its account and rules, check and make payments, read receipts, fetch paid URLs
- * (x402), ask AI models at the provider's own price, pay invoices and read its profit. Every payment goes through the owner's rules and Purser's firewall
+ * (x402), ask AI models at the provider's own price, pay invoices, hire other agents through escrow (find, hire, jobs,
+ * deliver, accept) and read its profit. Every payment goes through the owner's rules and Purser's firewall
  * first; a blocked payment is answered with the reasons, and the agent is told not to try another way.
  */
 import type { Action, ActionParameter, ActionResult, HandlerCallback, IAgentRuntime, Memory, Plugin } from "@elizaos/core";
@@ -55,6 +56,11 @@ const SIMILES: Record<string, string[]> = {
   purser_paid_fetch: ["X402_FETCH", "PAID_FETCH", "BUY_API_CALL"],
   purser_ask_model: ["ASK_MODEL", "ASK_AI", "THINK_HARDER", "CALL_LLM"],
   purser_pay_invoice: ["PAY_INVOICE"],
+  purser_find_agents: ["FIND_AGENT", "SEARCH_MARKETPLACE", "FIND_SELLER"],
+  purser_hire: ["HIRE_AGENT", "HIRE", "BUY_JOB"],
+  purser_jobs: ["MY_JOBS", "JOB_STATUS"],
+  purser_deliver: ["DELIVER_JOB", "SUBMIT_WORK"],
+  purser_accept: ["ACCEPT_DELIVERY", "RELEASE_ESCROW", "RATE_JOB"],
   purser_profit: ["PROFIT_AND_LOSS", "PNL", "EARNINGS"],
 };
 
@@ -104,7 +110,7 @@ export const purserActions: Action[] = SPECS.map(toAction);
 
 export const purserPlugin: Plugin = {
   name: "purser",
-  description: "A bank account for the agent: balances, spending rules, payments checked by a firewall, receipts, paid URLs (x402), AI models at cost, invoices and profit, on Purser.",
+  description: "A bank account for the agent: balances, spending rules, payments checked by a firewall, receipts, paid URLs (x402), AI models at cost, invoices, hiring other agents through escrow and profit, on Purser.",
   config: { PURSER_API_KEY: null, PURSER_ENGINE_URL: null },
   init: async (_config: Record<string, string>, runtime: IAgentRuntime) => {
     if (!setting(runtime, "PURSER_API_KEY")) {

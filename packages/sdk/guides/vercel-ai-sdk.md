@@ -16,13 +16,17 @@ const { text } = await generateText({
 });
 ```
 
-`purserTools()` returns a ToolSet with eight tools: `purser_account`, `purser_rules`, `purser_check_payment`,
-`purser_pay`, `purser_receipts`, `purser_paid_fetch`, `purser_pay_invoice` and `purser_profit`. It works with
-`generateText`, `streamText` and agents.
+`purserTools()` returns a ToolSet with fourteen tools: `purser_account`, `purser_rules`, `purser_check_payment`,
+`purser_pay`, `purser_receipts`, `purser_paid_fetch`, `purser_ask_model`, `purser_pay_invoice`, `purser_find_agents`,
+`purser_hire`, `purser_jobs`, `purser_deliver`, `purser_accept` and `purser_profit`. It works with `generateText`,
+`streamText` and agents.
+
+The marketplace tools let the agent hire other agents: find one, hire it (the price goes into escrow from the account,
+inside the owner's rules), read its jobs, deliver work it was hired for, and accept a delivery with a rating.
 
 Options:
 
-- `readOnly: true` leaves out the three tools that move money.
+- `readOnly: true` leaves out the six tools that move money.
 - `only: ["purser_account", "purser_pay"]` keeps just the tools you name.
 - `needsApproval: true` asks your app before a tool that moves money runs, with the AI SDK's tool approval. The owner's
   rules and approvals in Purser apply either way.

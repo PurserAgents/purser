@@ -45,11 +45,13 @@ describe("@purseragents/ai-sdk in a real generateText loop", () => {
 
   it("is a ToolSet keyed by tool name, with JSON Schemas the model sees", async () => {
     const tools = purserTools({ apiKey: "prs_x", baseUrl: "http://x" });
-    assert.deepEqual(Object.keys(tools), ["purser_account", "purser_rules", "purser_check_payment", "purser_pay", "purser_receipts", "purser_paid_fetch", "purser_ask_model", "purser_pay_invoice", "purser_profit"]);
+    assert.deepEqual(Object.keys(tools), ["purser_account", "purser_rules", "purser_check_payment", "purser_pay", "purser_receipts", "purser_paid_fetch", "purser_ask_model", "purser_pay_invoice", "purser_find_agents", "purser_hire", "purser_jobs", "purser_deliver", "purser_accept", "purser_profit"]);
     const model = scripted("purser_account", {});
     await generateText({ model, tools: purserTools({ apiKey, baseUrl: url }), prompt: "What is my balance?", stopWhen: stepCountIs(3) });
     const sent = model.doGenerateCalls[0].tools!.find((t) => t.name === "purser_pay") as { inputSchema: { required: string[] } };
     assert.deepEqual(sent.inputSchema.required, ["to", "amount", "memo"]);
+    const hire = model.doGenerateCalls[0].tools!.find((t) => t.name === "purser_hire") as { inputSchema: { required: string[] } };
+    assert.deepEqual(hire.inputSchema.required, ["listing_id", "brief"]);
   });
 
   it("the model pays through Purser and reads the receipt", async () => {
@@ -78,6 +80,8 @@ describe("@purseragents/ai-sdk in a real generateText loop", () => {
     assert.ok(!("purser_pay" in ro) && "purser_account" in ro);
     const ap = purserTools({ apiKey: "prs_x", baseUrl: "http://x", needsApproval: true }) as Record<string, { needsApproval?: unknown }>;
     assert.equal(ap.purser_pay.needsApproval, true);
+    assert.equal(ap.purser_hire.needsApproval, true);
+    assert.ok(!("purser_hire" in ro) && !("purser_accept" in ro) && "purser_find_agents" in ro);
     assert.equal(ap.purser_account.needsApproval, undefined);
   });
 

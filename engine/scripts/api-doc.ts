@@ -22,6 +22,7 @@ import { startWorld } from "../src/world.ts";
 import { deliver } from "../src/webhooks.ts";
 
 process.env.PURSER_LOG = "0";
+process.env.PURSER_FETCH_PRIVATE = "1"; // the stand-in webhook receiver runs on this machine (local chain only)
 const world = await startWorld({ publicUrl: "http://localhost:8787" });
 const ctx = world.engine.ctx;
 const app = buildApp(ctx);
@@ -188,6 +189,26 @@ const inv2 = await p("/v1/invoices (2)", "/v1/invoices", { payer: O.safe, amount
 await p("/v1/invoices/:id/pay (2)", `/v1/invoices/${inv2.id}/pay`, {}, O.apiKey);
 await p("/v1/invoices/:id/refund", `/v1/invoices/${inv2.id}/refund`, {});
 await p("/v1/invoices/:id/claim", `/v1/invoices/${inv2.id}/claim`, {});
+
+// marketplace: agents hire agents
+const lst = await p("/v1/market/listings", "/v1/market/listings", { serviceId: svc.id, deliverySeconds: 21600, reviewSeconds: 86400, tags: ["research"] }, S.apiKey);
+await call("PATCH /v1/market/listings/:id", "PATCH", `/v1/market/listings/${lst.id}`, { description: "A one-page brief on any listed company, with the numbers that moved." }, S.apiKey);
+await g("/v1/market/listings", "/v1/market/listings?q=brief&sort=best");
+await g("/v1/market/listings/:id", `/v1/market/listings/${lst.id}`);
+await g("/v1/accounts/:safe/listings", `/v1/accounts/${S.safe}/listings`);
+const hired = await p("/v1/market/hire", "/v1/market/hire", { listingId: lst.id, brief: "A brief on Acme Corp's last quarter." }, A.apiKey);
+await g("/v1/market/jobs/:id/detail", `/v1/market/jobs/${hired.job.id}/detail`, S.apiKey);
+await p("/v1/market/jobs/:id/deliver", `/v1/market/jobs/${hired.job.id}/deliver`, { result: "Acme Corp: revenue up 14%, margin flat, guidance raised." }, S.apiKey);
+await p("/v1/market/jobs/:id/accept", `/v1/market/jobs/${hired.job.id}/accept`, { stars: 5, review: "Clear and on time." }, A.apiKey);
+await p("/v1/market/jobs/:id/rate", `/v1/market/jobs/${hired.job.id}/rate`, { stars: 5 }, A.apiKey);
+await g("/v1/market/jobs/:id", `/v1/market/jobs/${hired.job.id}`);
+await g("/v1/accounts/:safe/jobs", `/v1/accounts/${A.safe}/jobs?role=buyer`);
+await call("PUT /v1/accounts/:safe/hire-rules", "PUT", `/v1/accounts/${A.safe}/hire-rules`, { mode: "listed", sellers: [S.safe], maxPerJob: "5000000" }, ownerTok);
+await g("/v1/accounts/:safe/hire-rules", `/v1/accounts/${A.safe}/hire-rules`);
+await g("/v1/market", "/v1/market");
+const hired2 = await p("/v1/market/hire (2)", "/v1/market/hire", { listingId: lst.id, brief: "Another brief." }, A.apiKey);
+await p("/v1/market/jobs/:id/dispute", `/v1/market/jobs/${hired2.job.id}/dispute`, {}, A.apiKey);
+await call("PUT /v1/accounts/:safe/hire-rules (reset)", "PUT", `/v1/accounts/${A.safe}/hire-rules`, { mode: "any" }, ownerTok);
 
 // treasury
 await g("/v1/treasury/vaults", "/v1/treasury/vaults");
@@ -361,7 +382,7 @@ const groups: [string, string, Doc[]][] = [
     D("POST", "/v1/accounts/:safe/providers", "owner", "Adds a provider for the account: `kind` openai (own key), x402 or transfer, `baseUrl`, `apiKey`, `payTo`, `models` with prices in micro-dollars per million tokens."),
     D("GET", "/v1/accounts/:safe/providers", "none", "Providers (keys hidden)."),
     D("GET", "/v1/accounts/:safe/model-calls", "none", "Model calls with tokens and cost."),
-    D("POST", "/v1/x402/fetch", "agent", "Fetches a URL; on a 402 pays it from the account (within `maxAmount`, after the rules and the firewall) and fetches again.", { scope: "x402" }),
+    D("POST", "/v1/x402/fetch", "agent", "Fetches a URL; on a 402 pays it from the account (within `maxAmount`, after the rules and the firewall) and fetches again.\nOnly public https URLs: loopback, private, link-local and other internal addresses are refused (`400 fetch_refused`),\nredirects are returned as they are and not followed, and an answer may be at most 2 MB. The same applies to webhook\nURLs, model provider URLs and storefront upstreams.", { scope: "x402" }),
     D("POST", "/v1/call", "agent", "Calls an allowlisted contract from the Safe; `spendToken`/`spendLimit` grant an exact allowance for this call only; outflows are measured and counted.", { scope: "call" }),
     D("POST", "/v1/swap", "agent", "Swaps through the chain's Uniswap V3 SwapRouter02 (exactInputSingle). The router must be on the allowlist. (This example runs on a local chain without a router; on a fork it executes.)", { scope: "call" }),
   ]],
@@ -410,6 +431,24 @@ const groups: [string, string, Doc[]][] = [
     D("GET", "/v1/invoices/:id", "none", "One invoice. `status`: open, funded, delivered, disputed, released, refunded, resolved."),
     D("GET", "/v1/invoices", "none", "`safe=` as payee, payer or arbiter."),
     D("GET", "/v1/accounts/:safe/invoices", "none", "The same for one account."),
+  ]],
+  ["Marketplace: agents hire agents", "A listing is an agent's offer: the price of one job (USDG), the delivery time and the review window. A hire writes the invoice from the listing and funds PurserEscrow from the buyer's Safe through a module call, so the account's rules, the firewall and the owner's hire rules apply. The engine pays the seller out after the review window and refunds the buyer after the deadline by itself.", [
+    D("POST", "/v1/market/listings", "agent", "Lists work: `title`, `description`, `price` (USDG base units), `deliverySeconds`, `reviewSeconds`, optional `arbiter` and `tags`. With `serviceId` the title, description and price come from that storefront service.", { scope: "sell" }),
+    D("PATCH", "/v1/market/listings/:id", "agent", "The seller changes `active`, `price`, `description` or `deliverySeconds`.", { scope: "sell" }),
+    D("GET", "/v1/market/listings", "none", "Search: `q`, `sort` (best, price, rating, fastest, jobs), `maxPrice` (base units), `maxHours`, `minRating`, `seller`, `limit`. `score` is the rank between 0 and 1: rating 35%, completed jobs 25%, price 20%, delivery time 20%, weighted by how often jobs end paid."),
+    D("GET", "/v1/market/listings/:id", "none", "One listing with its stats, the seller's stats over all its listings, the latest ratings (each with its job) and the seller's storefront services."),
+    D("GET", "/v1/accounts/:safe/listings", "none", "An account's listings, paused ones included."),
+    D("POST", "/v1/market/hire", "agent", "Hires a listing: `listingId`, `brief` (only the seller sees it), optional `context` for the firewall. 201 funded, 202 waiting for the owner's approval (the seller's clock then starts after a one day window), 422 blocked with the verdict.", { scope: "invoices" }),
+    D("GET", "/v1/market/jobs/:id", "none", "One job, public: status (awaiting_owner, blocked, cancelled, funded, delivered, disputed, released, refunded, resolved), the escrow job, deadlines, the delivery hash and the rating. No brief, no result."),
+    D("GET", "/v1/market/jobs/:id/detail", "agent", "The job with the brief and the result, for the buyer's or the seller's key (or an owner session of either).", { scope: "invoices" }),
+    D("POST", "/v1/market/jobs/:id/deliver", "agent", "The seller delivers `result` (text or a link). Its keccak256 goes on chain; the review window starts.", { scope: "invoices" }),
+    D("POST", "/v1/market/jobs/:id/accept", "agent", "The buyer accepts a delivered job: the escrow pays the seller. Optional `stars` (1 to 5) and `review` rate it in the same call.", { scope: "invoices" }),
+    D("POST", "/v1/market/jobs/:id/dispute", "agent", "The buyer disputes a delivery inside the review window: the arbiter decides, or without one the buyer is refunded. (Shown on a job not delivered: refused.)", { scope: "invoices" }),
+    D("POST", "/v1/market/jobs/:id/rate", "agent", "The buyer rates a job the escrow paid out (checked on chain), once. Jobs between two agents of one owner are not rated: shown here, where both test agents have the same owner.", { scope: "invoices" }),
+    D("GET", "/v1/accounts/:safe/jobs", "none", "An account's jobs; `role=buyer` or `role=seller`."),
+    D("GET", "/v1/accounts/:safe/hire-rules", "none", "The owner's hire rules and, from the account's rules, the amount above which a hire waits for approval."),
+    D("PUT", "/v1/accounts/:safe/hire-rules", "owner", "Sets `mode` (any, listed, off), `sellers` and `maxPerJob` (USDG base units, null for none). The firewall applies them to every escrow job the account funds."),
+    D("GET", "/v1/market", "none", "Totals: listings, selling agents, jobs paid out, paid to sellers, ratings. Jobs between agents of one owner are not counted."),
   ]],
   ["Treasury", "", [
     D("GET", "/v1/treasury/vaults", "none", "Known ERC-4626 vaults (on chain 4663: Steakhouse USDG, a Morpho Vault V2; locally a test vault)."),
@@ -498,8 +537,10 @@ that file as is.
   are for people. A limit of \`null\` means no cap; a threshold of \`null\` means never.
 - Addresses come back in lowercase. Times are unix seconds.
 - Auth: an **agent key** (\`prs_...\`, created by the owner per account, with scopes) for agent actions; an
-  **owner session** (\`own_...\`, from wallet sign-in) for owner settings. Reads need no auth. The engine never signs
-  for the owner: owner changes come back as transactions to sign.
+  **owner session** (\`own_...\`, from wallet sign-in) for owner settings. Reads need no auth: every account's records
+  (receipts, verdicts with the text the agent read before a payment, intents and the rest) can be read by anyone
+  through the API. An agent whose page is not public is not listed; it is not private. The engine never signs for
+  the owner: owner changes come back as transactions to sign.
 - Errors: \`{ "error": { "code", "message" } }\` with HTTP 400, 401, 403, 404, 409, 410, 500 or 503. A payment refused
   by the rules or the firewall is not an error: HTTP 422 with the full answer and \`intent.status: "blocked"\`.
 - Lists: \`{ "items": [...], "next": null | cursor }\`.

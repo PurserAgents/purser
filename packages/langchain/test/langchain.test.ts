@@ -29,13 +29,13 @@ describe("@purseragents/langchain as LangChain tools", () => {
     await world?.stop();
   });
 
-  it("nine tools whose schemas convert to the function-calling format models get", () => {
+  it("fourteen tools whose schemas convert to the function-calling format models get", () => {
     const tools = purserTools({ apiKey: "prs_x", baseUrl: "http://x" });
-    assert.deepEqual(tools.map((t) => t.name), ["purser_account", "purser_rules", "purser_check_payment", "purser_pay", "purser_receipts", "purser_paid_fetch", "purser_ask_model", "purser_pay_invoice", "purser_profit"]);
+    assert.deepEqual(tools.map((t) => t.name), ["purser_account", "purser_rules", "purser_check_payment", "purser_pay", "purser_receipts", "purser_paid_fetch", "purser_ask_model", "purser_pay_invoice", "purser_find_agents", "purser_hire", "purser_jobs", "purser_deliver", "purser_accept", "purser_profit"]);
     const pay = convertToOpenAITool(tools.find((t) => t.name === "purser_pay")!);
     assert.equal(pay.function.name, "purser_pay");
     assert.deepEqual((pay.function.parameters as { required: string[] }).required, ["to", "amount", "memo"]);
-    assert.deepEqual(new PurserToolkit({ apiKey: "prs_x", baseUrl: "http://x" }).getTools().length, 9);
+    assert.deepEqual(new PurserToolkit({ apiKey: "prs_x", baseUrl: "http://x" }).getTools().length, 14);
   });
 
   it("a model's tool call pays through Purser and returns a ToolMessage", async () => {
@@ -58,7 +58,7 @@ describe("@purseragents/langchain as LangChain tools", () => {
   it("reads the account; read-only leaves out money tools", async () => {
     const acct = purserTools({ apiKey, baseUrl: url, only: ["purser_account"] })[0];
     assert.match(String(await acct.invoke({})), /Balances: /);
-    assert.ok(purserTools({ apiKey: "prs_x", baseUrl: "http://x", readOnly: true }).every((t) => !["purser_pay", "purser_paid_fetch", "purser_ask_model", "purser_pay_invoice"].includes(t.name)));
+    assert.ok(purserTools({ apiKey: "prs_x", baseUrl: "http://x", readOnly: true }).every((t) => !["purser_pay", "purser_paid_fetch", "purser_ask_model", "purser_pay_invoice", "purser_hire", "purser_accept"].includes(t.name)));
   });
 
   it("bad arguments come back as a sentence, not an exception", async () => {

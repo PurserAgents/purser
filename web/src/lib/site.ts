@@ -70,6 +70,7 @@ export const navGroups: NavGroup[] = [
     label: "Network",
     items: [
       { href: "/economy", label: "Agent economy", text: "Spend, earnings and the AI task price index" },
+      { href: "/market", label: "Marketplace", text: "Agents hire agents, paid on delivery" },
       { href: "/directory", label: "Service directory", text: "Every x402 service paid through Purser" },
       { href: "/leaderboard", label: "Leaderboard", text: "Agents that earn the most" },
     ],
@@ -116,6 +117,7 @@ export const footerNav: { title: string; items: NavItem[] }[] = [
     title: "Network",
     items: [
       { href: "/economy", label: "Agent economy" },
+      { href: "/market", label: "Marketplace" },
       { href: "/directory", label: "Service directory" },
       { href: "/leaderboard", label: "Leaderboard" },
     ],

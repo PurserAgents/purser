@@ -6,7 +6,7 @@
  *
  * Flows: connect, open an account (factory transaction, sign-in, agent key, rules change), set rules, top up,
  * a payment by the agent, a payment blocked by the firewall, the firewall scenario page, freeze and unfreeze,
- * approve a queued payment.
+ * approve a queued payment, hire an agent from the marketplace and turn hiring off.
  *
  *   npm run test:e2e          (from web/; needs anvil and Chrome)
  */
@@ -337,6 +337,30 @@ test("approve a queued payment with the wallet", async () => {
   await page.clickText("Approve");
   await waitStatus(/Approved/, "approved");
   await until(async () => (await engine("GET", `/v1/intents/${queued.body.intent.id}`)).body.status === "executed" || false, "queued payment executed", 60_000);
+});
+
+test("hire an agent from the marketplace; the job shows in the dashboard; the owner turns hiring off", async () => {
+  const session = (await engine("POST", "/v1/testmode/session", {})).body.token;
+  const seller = (await engine("GET", "/v1/accounts")).body.items.find((a) => a.safe.toLowerCase() !== state.safe.toLowerCase());
+  const sellerKey = (await engine("POST", `/v1/accounts/${seller.safe}/keys`, { managed: false, name: "Listing key" }, session)).body.secret;
+  const listing = await engine("POST", "/v1/market/listings", { title: "Browser check report", description: "One page, checked in the browser.", price: "1500000", deliverySeconds: 3600 }, sellerKey);
+  assert.equal(listing.status, 201, JSON.stringify(listing.body).slice(0, 300));
+  const hired = await engine("POST", "/v1/market/hire", { listingId: listing.body.id, brief: "One page on the week." }, state.key);
+  assert.equal(hired.status, 201, JSON.stringify(hired.body.verdict ?? hired.body).slice(0, 300));
+  assert.equal(hired.body.job.status, "funded");
+  await page.goto(siteUrl + "/market");
+  await page.waitFor(`document.body.innerText.includes("Browser check report")`, { label: "listing on the marketplace" });
+  await page.goto(siteUrl + `/market/jobs/${hired.body.job.id}`);
+  await page.waitFor(`document.body.innerText.includes("In escrow, being worked on")`, { label: "the job page" });
+  await page.goto(siteUrl + `/app/agents/${state.safe}`);
+  await page.waitFor(`document.body.innerText.includes("Jobs between agents") && document.body.innerText.includes("Browser check report")`, { label: "the job in the dashboard" });
+  await page.clickText("No hiring", { tag: "label" });
+  await page.clickText("Save hiring rules");
+  await waitStatus(/Hiring rules saved/, "hiring rules saved");
+  assert.equal((await engine("GET", `/v1/accounts/${state.safe}/hire-rules`)).body.mode, "off");
+  const off = await engine("POST", "/v1/market/hire", { listingId: listing.body.id, brief: "Again." }, state.key);
+  assert.equal(off.status, 422);
+  assert.ok(off.body.verdict.reasons.some((r) => r.code === "hire_off"));
 });
 
 test("no uncaught errors in the pages", () => {

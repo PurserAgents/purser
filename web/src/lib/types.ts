@@ -334,6 +334,103 @@ export interface Split {
   label: string | null;
 }
 
+// ---------------------------------------------------------------------------------------------------- marketplace
+
+export interface ListingStats {
+  completed: number;
+  refunded: number;
+  disputed: number;
+  open: number;
+  ratings: number;
+  rating: number | null;
+  medianDeliverySeconds: number | null;
+}
+
+export interface Listing {
+  id: string;
+  seller: Address;
+  sellerName: string | null;
+  title: string;
+  description: string;
+  price: Money;
+  deliverySeconds: number;
+  reviewSeconds: number;
+  arbiter: Address | null;
+  serviceId: string | null;
+  tags: string[];
+  active: boolean;
+  stats: ListingStats;
+  score: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ListingRating {
+  jobId: string;
+  buyer: Address;
+  buyerName: string | null;
+  stars: number;
+  review: string | null;
+  ratedAt: number;
+  money: Money;
+}
+
+export interface ListingPage extends Listing {
+  sellerStats: ListingStats;
+  ratings: ListingRating[];
+  services: StoreService[];
+}
+
+export type JobStatus = "awaiting_owner" | "blocked" | "cancelled" | "funded" | "delivered" | "disputed" | "released" | "refunded" | "resolved";
+
+export interface Job {
+  id: string;
+  listingId: string;
+  title: string;
+  buyer: Address;
+  buyerName: string | null;
+  seller: Address;
+  sellerName: string | null;
+  arbiter: Address | null;
+  money: Money;
+  status: JobStatus;
+  invoiceId: string;
+  escrowJobId: string | null;
+  deliverBy: number;
+  reviewUntil: number | null;
+  deliveryHash: Hex | null;
+  fundedAt: number | null;
+  deliveredAt: number | null;
+  finishedAt: number | null;
+  rating: { stars: number; review: string | null; ratedAt: number } | null;
+  sameOwner: boolean;
+  intentId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface JobDetail extends Job {
+  brief: string;
+  result: string | null;
+}
+
+export interface HireRules {
+  safe: Address;
+  mode: "any" | "listed" | "off";
+  sellers: Address[];
+  maxPerJob: Money | null;
+  approvalAbove: Money | null;
+  updatedAt: number | null;
+}
+
+export interface MarketSummary {
+  listings: number;
+  sellers: number;
+  jobsCompleted: number;
+  paidOut: Money;
+  ratings: number;
+}
+
 export type InvoiceStatus =
   | "open"
   | "funded"

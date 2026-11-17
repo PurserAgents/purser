@@ -199,6 +199,48 @@ CREATE TABLE IF NOT EXISTS invoices (
   updated_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS listings (
+  id TEXT PRIMARY KEY,
+  seller TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  token TEXT NOT NULL,
+  price TEXT NOT NULL,
+  delivery_seconds INTEGER NOT NULL,
+  review_seconds INTEGER NOT NULL,
+  arbiter TEXT,
+  service_id TEXT,
+  tags TEXT NOT NULL DEFAULT '[]',
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS listings_seller ON listings (seller);
+CREATE TABLE IF NOT EXISTS jobs (
+  id TEXT PRIMARY KEY,
+  listing_id TEXT NOT NULL,
+  invoice_id TEXT NOT NULL UNIQUE,
+  buyer TEXT NOT NULL,
+  seller TEXT NOT NULL,
+  title TEXT NOT NULL,
+  brief TEXT NOT NULL,
+  result TEXT,
+  intent_id TEXT,
+  same_owner INTEGER NOT NULL DEFAULT 0,
+  funded_at INTEGER,
+  delivered_at INTEGER,
+  finished_at INTEGER,
+  stars INTEGER,
+  review TEXT,
+  rated_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS jobs_buyer ON jobs (buyer);
+CREATE INDEX IF NOT EXISTS jobs_seller ON jobs (seller);
+CREATE INDEX IF NOT EXISTS jobs_listing ON jobs (listing_id);
+CREATE TABLE IF NOT EXISTS hire_rules (safe TEXT PRIMARY KEY, mode TEXT NOT NULL, sellers TEXT NOT NULL DEFAULT '[]', max_per_job TEXT, updated_at INTEGER NOT NULL);
+
 CREATE TABLE IF NOT EXISTS teams (id TEXT PRIMARY KEY, name TEXT NOT NULL, treasury TEXT NOT NULL, owner TEXT NOT NULL, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS departments (id TEXT PRIMARY KEY, team_id TEXT NOT NULL, name TEXT NOT NULL, daily_budget TEXT, token TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS team_members (

@@ -1,9 +1,10 @@
 import { decodeEventLog, decodeFunctionData, getAddress, isHex, keccak256, parseAbi, size, slice, toEventSelector, toHex, type Address, type Hex } from "viem";
-import { erc20Abi } from "../../packages/sdk/src/abi.ts";
+import { erc20Abi, purserModuleAbi } from "../../packages/sdk/src/abi.ts";
 import type { AssetChange, SimulationSummary, Verdict, VerdictReason } from "../../packages/sdk/src/schema.ts";
 import { balanceOf, setsOf } from "./accounts.ts";
 import { decodeRevertData, REVERT_WORDS } from "./chain.ts";
 import { requireDep, type Ctx } from "./ctx.ts";
+import { decodeEscrowFund, hireReasons } from "./hireRules.ts";
 import type { PolicyResult } from "./policy.ts";
 import { fmt, id, json, lower, now, parseJson, sameAddress, ZERO } from "./util.ts";
 import { NOT_GENUINE, protectSchedules, recordShieldStop, recordThreats, sentencePrints, shieldCheck, type ThreatCandidate } from "./shield.ts";
@@ -439,6 +440,23 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
   } else if (!known && input.amount > 0n) {
     add("new_counterparty", "info", "First payment to this address", "This account has not paid this address before.");
   }
+  // 4b. a job paid into the escrow: the money's real destination is the job's payee, so the payee is checked like
+  //     one, and the owner's hire rules apply (they hold for the marketplace API and a raw escrow call alike)
+  const job = input.kind === "call" ? decodeEscrowFund(ctx, input.to, input.callData) : null;
+  if (job) {
+    const payeeCode = await ctx.chain.pub.getCode({ address: job.payee }).catch(() => undefined);
+    if (payeeCode && payeeCode.startsWith("0xef0100")) {
+      const d = lower(`0x${payeeCode.slice(8, 48)}`);
+      threats.push({ address: job.payee, kind: "forwarding_wallet" }, { address: d, kind: "forwarding_code" });
+      add("delegated_eoa", "block", "The job's payee runs delegated code", `The escrow would pay ${job.payee}, a wallet that hands control to the contract ${d} (EIP-7702).`);
+    }
+    if (DEAD.has(job.payee)) add("burn_address", "block", "The job pays a burn address", "Money paid out to this address can never be recovered.");
+    if (input.policy.payeeAllowlist) {
+      const listed = await ctx.chain.pub.readContract({ address: dep.module, abi: purserModuleAbi, functionName: "allowed", args: [input.safe, job.payee] });
+      if (!listed) add("payee_not_allowed", "block", "Payee not on the allowlist", "The owner only allows payments to listed payees, and the agent this job pays is not listed.");
+    }
+    reasons.push(...hireReasons(ctx, input.safe, job));
+  }
   if (DEAD.has(lower(input.to))) add("burn_address", "block", "Paying a burn address", "Money sent to this address can never be recovered.");
   if (input.token && sameAddress(input.to, input.token)) add("token_contract", "block", "Paying the token contract itself", "Tokens sent to their own contract are usually lost.");
 
@@ -495,7 +513,7 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
   }
 
   // 8. Purser Shield: everything this payment touches, checked against what other accounts' firewalls caught
-  const touched = [input.to, ...(delegate ? [delegate] : []), ...sim.assetChanges.filter((c) => sameAddress(c.from, input.safe)).map((c) => c.to), ...sim.approvals.map((a) => a.spender)];
+  const touched = [input.to, ...(delegate ? [delegate] : []), ...(job ? [job.payee] : []), ...sim.assetChanges.filter((c) => sameAddress(c.from, input.safe)).map((c) => c.to), ...sim.approvals.map((a) => a.spender)];
   const shield = shieldCheck(ctx, { safe: input.safe, addresses: touched, trigger: input.trigger, agreed: input.agreed, ownerApproved: input.ownerApproved });
   reasons.push(...shield.reasons);
 

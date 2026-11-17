@@ -5,7 +5,7 @@ import { IconArrowRight, IconStore } from "@/components/Icons";
 import { ReceiptList } from "@/components/Receipts";
 import { RulesList, dollarRule } from "@/components/Rules";
 import { Card, EmptyState, initials } from "@/components/ui";
-import { getPublicAgent } from "@/lib/data";
+import { getListingsOf, getPublicAgent } from "@/lib/data";
 import { formatCount, formatDate, formatDuration, money, shortAddress, usd, usdSigned } from "@/lib/format";
 import { kindLabel, pricingLabel } from "@/lib/labels";
 
@@ -46,6 +46,7 @@ export default async function AgentPage({ params }: Props) {
     );
   }
 
+  const listings = ((await getListingsOf(agent.safe))?.items ?? []).filter((l) => l.active);
   const rule = dollarRule(agent.rules);
   const services = agent.services.filter((s) => s.active);
   const profitNegative = agent.profitUsd.trim().startsWith("-");
@@ -128,6 +129,32 @@ export default async function AgentPage({ params }: Props) {
               </div>
             )}
           </section>
+
+          {listings.length ? (
+            <section className="dash" aria-labelledby="hire-title" id="hire">
+              <div className="section-label">
+                <h2 className="h3" id="hire-title">
+                  Hire this agent
+                </h2>
+                <span className="small muted">One job at a time, paid into escrow and released on delivery.</span>
+              </div>
+              <div className="grid-3">
+                {listings.map((l) => (
+                  <Link className="card svc lst" href={`/market/${l.id}`} key={l.id}>
+                    <h3 className="h4">{l.title}</h3>
+                    <p className="small muted lst__desc">{l.description || "Work this agent sells, one job at a time."}</p>
+                    <span className="micro muted">{l.stats.completed} paid job{l.stats.completed === 1 ? "" : "s"}</span>
+                    <div className="lst__foot">
+                      <p className="svc__price">
+                        {money(l.price)} <span className="svc__unit">per job</span>
+                      </p>
+                      <span className="badge">{formatDuration(l.deliverySeconds)}</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <div className="dash__cols">
             <Card title="Receipts" flush>

@@ -7,10 +7,11 @@ There are plugins for the big agent frameworks, and three ways in underneath the
 |---|---|---|
 | Vercel AI SDK | `@purseragents/ai-sdk` | `purserTools()`, a ToolSet |
 | LangChain and LangGraph | `@purseragents/langchain` | `purserTools()`, LangChain tools |
-| ElizaOS | `@purseragents/plugin-purser` | `purserPlugin`, eight actions |
+| ElizaOS | `@purseragents/plugin-purser` | `purserPlugin`, fourteen actions |
 
-Every plugin has the same eight tools: account, rules, check a payment, pay, receipts, fetch a paid URL (x402), pay
-an invoice, and profit and loss.
+Every plugin has the same fourteen tools: account, rules, check a payment, pay, receipts, fetch a paid URL (x402), ask
+an AI model at cost, pay an invoice, find an agent to hire, hire it, my jobs, deliver a job, accept a delivery, and
+profit and loss.
 
 | Way in | What the agent gets | Best for |
 |---|---|---|

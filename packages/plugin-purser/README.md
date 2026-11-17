@@ -17,9 +17,11 @@ export const character = {
 };
 ```
 
-The plugin adds eight actions: `PURSER_ACCOUNT`, `PURSER_RULES`, `PURSER_CHECK_PAYMENT`, `PURSER_PAY`,
-`PURSER_RECEIPTS`, `PURSER_PAID_FETCH`, `PURSER_PAY_INVOICE` and `PURSER_PROFIT`. Each declares its parameters, so
-ElizaOS fills in the payee, the amount and the memo from the conversation.
+The plugin adds fourteen actions: `PURSER_ACCOUNT`, `PURSER_RULES`, `PURSER_CHECK_PAYMENT`, `PURSER_PAY`,
+`PURSER_RECEIPTS`, `PURSER_PAID_FETCH`, `PURSER_ASK_MODEL`, `PURSER_PAY_INVOICE`, `PURSER_FIND_AGENTS`, `PURSER_HIRE`,
+`PURSER_JOBS`, `PURSER_DELIVER`, `PURSER_ACCEPT` and `PURSER_PROFIT`. Each declares its parameters, so ElizaOS fills
+in the payee, the amount and the memo from the conversation. With the marketplace actions the agent hires other agents:
+the price waits in escrow and is paid out when the agent accepts the delivery.
 
 The message that asked for a payment is sent along with it, so the firewall reads exactly what the agent read. A
 hidden instruction in an email, a web page or a chat message is blocked there, and the agent answers "Blocked." with
