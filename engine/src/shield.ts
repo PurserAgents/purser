@@ -24,7 +24,8 @@ import { react } from "./watchdog.ts";
 // - an entry protects only the account that reported it until enough independent accounts in good standing reported
 //   it; then it protects every account. Good standing: at least $25 paid out in listed tokens to at least three
 //   different payees, the first of those payments at least 30 days old, and at least $5 of it spent where the account
-//   cannot take it back (prepaid model credit at Purser, or another account with different owners). Independent:
+//   cannot take it back: model credit used up by calls (credit not used can be withdrawn), or payments to another
+//   account that shares no owner with it and never paid it or its owners' accounts back. Independent:
 //   accounts that share an owner (any owner they were ever seen with) or paid each other are one group, and each group
 //   counts once. A reporter that itself paid or was paid by the
 //   address does not count for it. Entries not seen again for a while stop counting, and an owner can take back
@@ -128,6 +129,9 @@ export function trusted(ctx: Ctx, address: string): boolean {
   const a = lower(address);
   const dep = ctx.dep;
   if (dep && [dep.module, dep.factory, dep.recurring, dep.escrow, dep.passkey, dep.feeRecipient, dep.usdg, dep.weth].some((x) => x && sameAddress(x, a))) return true;
+  // Purser's own payees and keys: the models address (every top-up goes there) and the engine's keys
+  const own = [process.env.PURSER_MODELS_PAYTO, ...Object.values(ctx.chain.accounts).map((k) => k?.address)];
+  if (own.some((x) => x && sameAddress(x, a))) return true;
   const payers = (
     ctx.db
       .prepare(
@@ -143,8 +147,9 @@ export function trusted(ctx: Ctx, address: string): boolean {
 
 /**
  * Good standing: at least $25 paid out in listed tokens to at least three payees, the first payment 30 days old, and at
- * least $5 of it spent where the account cannot take it back: prepaid model credit at Purser, or payments to another
- * account with different owners. Money sent to one's own wallets comes back; these payments do not.
+ * least $5 of it spent where the account cannot take it back. Only two things count as that: model credit used up by
+ * calls (unused credit can be withdrawn, so a top-up alone does not count), and payments to another account that shares
+ * no owner with this one and never paid this account, or any account of its owners, back.
  */
 export function inStanding(ctx: Ctx, safe: string): boolean {
   const s = lower(safe);
@@ -155,18 +160,23 @@ export function inStanding(ctx: Ctx, safe: string): boolean {
     .get(s) as { paid: number; first: number | null; payees: number };
   if (BigInt(r.paid) < SHIELD.standingUsdMicro || r.payees < SHIELD.standingPayees) return false;
   if (r.first === null || r.first > Math.floor(Date.now() / 1000) - SHIELD.standingAgeDays * 86400) return false;
-  const payTo = process.env.PURSER_MODELS_PAYTO?.toLowerCase() ?? "";
+  const used = BigInt((ctx.db.prepare("SELECT COALESCE(SUM(CAST(cost_micro AS INTEGER)), 0) AS n FROM model_calls WHERE safe = ? AND provider = 'purser'").get(s) as { n: number }).n);
+  if (used >= SHIELD.standingSpentMicro) return true;
   const mine = new Set(ownersOf(ctx, s));
-  const spent = (
-    ctx.db
-      .prepare(
-        `SELECT r.counterparty, r.service, r.category, CAST(r.usd_micro AS INTEGER) AS micro, (SELECT 1 FROM accounts a WHERE a.safe = r.counterparty) AS account
-         FROM receipts r WHERE r.safe = ? AND r.direction = 'out' AND r.status = 'executed'`,
-      )
-      .all(s) as { counterparty: string; service: string | null; category: string; micro: number; account: number | null }[]
-  )
-    .filter((x) => (x.service === "model:purser/credit" && x.counterparty === payTo) || (x.account && !ownersOf(ctx, x.counterparty).some((o) => mine.has(o))))
-    .reduce((n, x) => n + BigInt(x.micro), 0n);
+  // this account and every account that shares an owner with it: money paid back to any of them came back
+  const family = new Set([s, ...(ctx.db.prepare("SELECT safe FROM accounts").all() as { safe: string }[]).map((x) => x.safe).filter((x) => ownersOf(ctx, x).some((o) => mine.has(o)))]);
+  const toAccounts = ctx.db
+    .prepare(
+      `SELECT r.counterparty AS cp, SUM(CAST(r.usd_micro AS INTEGER)) AS micro FROM receipts r JOIN accounts a ON a.safe = r.counterparty
+       WHERE r.safe = ? AND r.direction = 'out' AND r.status = 'executed' GROUP BY r.counterparty`,
+    )
+    .all(s) as { cp: string; micro: number }[];
+  let spent = used;
+  for (const x of toAccounts) {
+    if (family.has(x.cp)) continue;
+    const back = [...family].some((f) => ctx.db.prepare("SELECT 1 FROM receipts WHERE safe = ? AND counterparty = ? AND direction = 'out' AND status = 'executed' LIMIT 1").get(x.cp, f));
+    if (!back) spent += BigInt(x.micro);
+  }
   return spent >= SHIELD.standingSpentMicro;
 }
 

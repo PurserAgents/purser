@@ -20,6 +20,7 @@ export const WATCH = {
   spikeMinUsdMicro: 5_000_000n, // a spike must be at least $5 in the hour
   burstCount: 10, // payments in 60 seconds
   loopCount: 5, // same payee and amount within 10 minutes
+  topUpsPerHour: 6, // model top-ups an hour that are never read as a loop or a burst
   drainShare: 50, // % of the balance at the start of the hour, gone within the hour
   newCounterpartyFactor: 3, // a first payment this many times the usual size
   cooldown: 600,
@@ -102,9 +103,11 @@ export async function inspect(ctx: Ctx, safe: Address, t?: number): Promise<Find
       found.push({ kind: "spike", severity: "critical", title: "Spending spike", detail: `$${usd(hourUsd)} spent in the last hour. This agent usually spends about $${b.hourlyMeanUsd} an hour (give or take $${b.hourlyStdUsd}).`, freeze: true });
   }
   // models at cost top-ups repeat by design (same payee, same amount when calls come fast): they count as spending
-  // for the spike rule, never as a burst or a loop
+  // for the spike rule, and up to six an hour are not a burst or a loop. Any more are counted like any payment, so an
+  // agent key cannot move the account's money into model credit at will.
   const payTo = process.env.PURSER_MODELS_PAYTO?.toLowerCase();
-  const habitual = hour.filter((r) => !(r.service === CREDIT_SERVICE && payTo && r.counterparty === payTo));
+  let exempt = WATCH.topUpsPerHour;
+  const habitual = hour.filter((r) => !(r.service === CREDIT_SERVICE && payTo && r.counterparty === payTo && exempt-- > 0));
   // burst
   const lastMinute = habitual.filter((r) => r.created_at >= now_ - 60);
   if (lastMinute.length >= WATCH.burstCount)

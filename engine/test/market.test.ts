@@ -72,7 +72,7 @@ describe("marketplace: agents hire agents (phase 05, local)", () => {
     Object.assign(listings, { research: a.body.id, logo: b.body.id, audit: big.body.id, sibling: sib.body.id });
 
     assert.equal((await e.post("/v1/market/listings", { title: "No price", deliverySeconds: 600 }, keys.seller)).status, 400);
-    assert.equal((await e.post("/v1/market/listings", { title: "Sneaky", price: "1", deliverySeconds: 600 }, keys.buyer.replace(/.$/, "x"))).status, 401);
+    assert.equal((await e.post("/v1/market/listings", { title: "Sneaky", price: "1", deliverySeconds: 600 }, (keys.buyer.slice(0, -1) + (keys.buyer.endsWith("x") ? "y" : "x")))).status, 401);
 
     const found = await e.get("/v1/market/listings?q=rivals");
     assert.equal((await e.get("/v1/market/listings?q=research%20desk")).body.items.length, 3, "the seller name is searched too");

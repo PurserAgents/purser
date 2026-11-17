@@ -199,8 +199,8 @@ export function makeOfflineEngine(over: Partial<Parameters<typeof loadConfig>[1]
 
 /**
  * Purser Shield counts a report for others only from an independent account in good standing. This gives an account
- * that standing in the test database: $25 paid out to three payees, $5 of it as prepaid model credit (money it cannot
- * take back), all backdated 31 days, and its own owner.
+ * that standing in the test database: $25 paid out to three payees, $5 of it as model credit that calls used up
+ * (money it cannot take back), all backdated 31 days, and its own owner.
  */
 export async function giveStanding(w: World, safe: Address, owner: Address = randomAddress()) {
   const { submitIntent } = await import("../src/intents.ts");
@@ -215,6 +215,11 @@ export async function giveStanding(w: World, safe: Address, owner: Address = ran
     const r = await submitIntent(w.ctx, { safe, spec: { kind: "pay", pay: { token: w.dep.usdg, to, amount, service } }, category: "transfer", signer: w.agent });
     if (r.intent.status !== "executed") throw new Error(`standing payment: ${r.intent.status} ${r.intent.error ?? ""}`);
   }
+  // the $5 of credit is used up by model calls (unused credit could be withdrawn, so it would not count)
+  w.ctx.db
+    .prepare("INSERT INTO model_calls (id, safe, provider, model, prompt_tokens, completion_tokens, cost_micro, receipt_id, task_id, created_at) VALUES (?, ?, 'purser', 'claude-opus-5-5', 1000, 1000, '5000000', 'credit', NULL, ?)")
+    .run(`standing_${safe.toLowerCase()}`, safe.toLowerCase(), Math.floor(Date.now() / 1000));
+  w.ctx.db.prepare("UPDATE model_credit SET balance_micro = balance_micro - 5000000 WHERE safe = ?").run(safe.toLowerCase());
   w.ctx.db.prepare("UPDATE receipts SET created_at = created_at - 31 * 86400 WHERE safe = ?").run(safe.toLowerCase());
   w.ctx.db.prepare("UPDATE accounts SET owners = ? WHERE safe = ?").run(JSON.stringify([owner.toLowerCase()]), safe.toLowerCase());
   w.ctx.db.prepare("DELETE FROM kv WHERE key = ?").run(`owners_seen:${safe.toLowerCase()}`);

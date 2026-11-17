@@ -34,3 +34,22 @@ contract SilentOwned {
         require(ok, "call");
     }
 }
+
+/// @notice Test helper. Code a Safe could be pointed at: it moves the ETH only when the gas price is zero, as in a
+///         replay without fee fields, and moves nothing on chain.
+contract GasPriceSafe {
+    function isModuleEnabled(address) external pure returns (bool) {
+        return true;
+    }
+
+    function execTransactionFromModuleReturnData(address to, uint256 value, bytes calldata data, uint8)
+        external
+        returns (bool, bytes memory)
+    {
+        if (tx.gasprice == 0) {
+            (bool ok,) = to.call{value: value}(data);
+            return (ok, abi.encode(true));
+        }
+        return (true, abi.encode(true));
+    }
+}

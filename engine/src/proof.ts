@@ -93,9 +93,13 @@ async function ethMovedBy(ctx: Ctx, receipt: { blockNumber: bigint; transactionI
     const txs = block.transactions.slice(0, receipt.transactionIndex + 1);
     if (txs.length !== receipt.transactionIndex + 1 || typeof txs[0] === "string") return null;
     const calls = txs.map((t) => ({ from: t.from, ...(t.to ? { to: t.to } : {}), data: t.input, value: toHex(t.value), gas: toHex(t.gas) }));
+    // several blocks a second share a timestamp: the node refuses a replayed block no later than its parent, so the
+    // block's own time is set only when it is later
+    const parent = await ctx.chain.pub.getBlock({ blockNumber: receipt.blockNumber - 1n });
+    const blockOverrides = block.timestamp > parent.timestamp ? { time: toHex(block.timestamp) } : {};
     const res = (await ctx.chain.pub.request({
       method: "eth_simulateV1" as never,
-      params: [{ blockStateCalls: [{ calls, blockOverrides: { time: toHex(block.timestamp) } }], traceTransfers: true, validation: false }, toHex(receipt.blockNumber - 1n)] as never,
+      params: [{ blockStateCalls: [{ calls, blockOverrides }], traceTransfers: true, validation: false }, toHex(receipt.blockNumber - 1n)] as never,
     })) as { calls: { status: Hex; logs?: { address: string; topics: Hex[]; data: Hex }[] }[] }[];
     const ours = res[0]?.calls?.[txs.length - 1];
     if (!ours) return null;
@@ -110,11 +114,11 @@ async function ethMovedBy(ctx: Ctx, receipt: { blockNumber: bigint; transactionI
 
 /**
  * Checks payments against one transaction's receipt. ERC-20: the token's own Transfer log from the payer to the
- * payee for exactly the amount; each Transfer log proves one payment only. ETH (no log): the transaction is replayed
- * on its block and must move the ETH from the payer to the payee itself. Where the node cannot replay: across the
- * block, the payee's balance grew and the payer's fell by at least the ETH claimed between them; and where it no longer
- * has the state of the block before, the payer must still be a real Safe (checked fresh) that reported a module
- * execution in the transaction.
+ * payee for exactly the amount; each Transfer log proves one payment only. ETH (no log): both of these, where the node
+ * can answer them: the transaction, replayed on its block, moves the ETH from the payer to the payee itself; and across
+ * the block the payee's balance grew and the payer's fell by at least the ETH claimed between them. Where the node no
+ * longer has the state of the block before, the replay stands with a fresh Safe check and the Safe's own module
+ * execution event; where it cannot replay, the balances stand alone.
  */
 export function txProof(ctx: Ctx, receipt: { logs: readonly Log[]; blockNumber: bigint; transactionIndex?: number }) {
   let replay: Promise<{ from: string; to: string; value: bigint }[] | null> | null = null;
@@ -138,15 +142,6 @@ export function txProof(ctx: Ctx, receipt: { logs: readonly Log[]; blockNumber: 
         const sent = (ethSent.get(from) ?? 0n) + c.amount;
         replay ??= ethMovedBy(ctx, receipt);
         const traced = await replay;
-        if (traced) {
-          const between = traced.filter((t) => t.from === from && t.to === to).reduce((n, t) => n + t.value, 0n);
-          const ok = between >= want;
-          if (ok) {
-            ethClaimed.set(to, want);
-            ethSent.set(from, sent);
-          }
-          return ok;
-        }
         let moved: { grew: bigint; fell: bigint } | null = null;
         try {
           const [g, f] = await Promise.all([delta(to), delta(from)]);
@@ -154,12 +149,22 @@ export function txProof(ctx: Ctx, receipt: { logs: readonly Log[]; blockNumber: 
         } catch {
           moved = null;
         }
+        // both, where the node can answer both: the replay runs without fee fields, so code that looks at the gas price
+        // could act differently there than on chain; the balances show what happened on chain
+        const inReplay = traced ? traced.filter((t) => t.from === from && t.to === to).reduce((n, t) => n + t.value, 0n) >= want : null;
+        const inBalances = moved ? moved.grew >= want && moved.fell >= sent : null;
+        const fallback = async () =>
+          (await checkSafe(ctx, c.payer, { fresh: true })).ok &&
+          !!ctx.dep &&
+          receipt.logs.some((l) => sameAddress(l.address, c.payer) && l.topics[0] === MODULE_SUCCESS_TOPIC && l.topics[1]?.toLowerCase() === topicOf(ctx.dep!.module));
         const ok =
-          moved !== null
-            ? moved.grew >= want && moved.fell >= sent
-            : (await checkSafe(ctx, c.payer, { fresh: true })).ok &&
-              !!ctx.dep &&
-              receipt.logs.some((l) => sameAddress(l.address, c.payer) && l.topics[0] === MODULE_SUCCESS_TOPIC && l.topics[1]?.toLowerCase() === topicOf(ctx.dep!.module));
+          inReplay !== null && inBalances !== null
+            ? inReplay && inBalances
+            : inReplay !== null
+              ? inReplay && (await fallback())
+              : inBalances !== null
+                ? inBalances
+                : await fallback();
         if (ok) {
           ethClaimed.set(to, want);
           ethSent.set(from, sent);
@@ -222,3 +227,5 @@ export async function dropNonSafeAccounts(ctx: Ctx): Promise<string[]> {
   }
   return dropped;
 }
+
+export const _test = { ethMovedBy };

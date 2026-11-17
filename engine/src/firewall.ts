@@ -324,6 +324,33 @@ export function dangerousAnywhere(data: Hex | null | undefined): string[] {
   return out;
 }
 
+/** Functions that change who controls a contract, by name: a timelock or a governor names its call as text. */
+const DANGEROUS_NAMES = [
+  "transferOwnership",
+  "renounceOwnership",
+  "setOwner",
+  "upgradeTo",
+  "upgradeToAndCall",
+  "changeAdmin",
+  "grantRole",
+  "addOwnerWithThreshold",
+  "removeOwner",
+  "swapOwner",
+  "changeThreshold",
+  "enableModule",
+  "disableModule",
+  "setGuard",
+  "setModuleGuard",
+  "setFallbackHandler",
+];
+
+/** Dangerous functions named as text anywhere in the call data, e.g. "transferOwnership(address)" in a timelock call. */
+export function dangerousNamed(data: Hex | null | undefined): string[] {
+  if (!data || data.length < 4) return [];
+  const text = Buffer.from(data.slice(2), "hex").toString("latin1");
+  return DANGEROUS_NAMES.filter((n) => text.includes(`${n}(`));
+}
+
 /** The selectors inside call data, unwrapping the usual batch shapes (multicall, Multicall3, execute, Safe multiSend). */
 export function innerSelectors(data: Hex | null | undefined, depth = 0): string[] {
   if (!data || size(data) < 4) return [];
@@ -501,6 +528,12 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
       takeover = true;
       add("dangerous_call", "block", "A takeover-style call", `The call runs ${DANGEROUS_SELECTORS[sel]}(), which changes who controls a contract.`);
     }
+  }
+  // a function that changes control, named as text (a timelock or governor call carries the signature, not the selector)
+  for (const name of dangerousNamed(input.callData)) {
+    if (takeover) break;
+    takeover = true;
+    add("dangerous_call", "block", "A takeover-style call", `The call names ${name}(), which changes who controls a contract.`);
   }
   // and what happened, whatever the call looked like: the simulation's logs, on both backends
   for (const l of raw.logs) {

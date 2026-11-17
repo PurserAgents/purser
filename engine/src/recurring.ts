@@ -433,9 +433,16 @@ registerRoutes((app: Hono, ctx: Ctx) => {
   });
   app.post("/v1/streams/:id/heartbeat", async (c) => {
     const b = await body(c, z.object({ upTo: z.number().int(), signature: zHex }));
-    const row = ctx.db.prepare("SELECT safe FROM streams WHERE id = ?").get(String(numId(c))) as { safe: string } | undefined;
+    const sid = numId(c);
+    const row = ctx.db.prepare("SELECT safe FROM streams WHERE id = ?").get(String(sid)) as { safe: string } | undefined;
     if (!row) fail(404, "not_found", "No such stream.");
-    const r = await relay(ctx, encodeFunctionData({ abi: purserRecurringAbi, functionName: "heartbeat", args: [numId(c), BigInt(b.upTo), b.signature] }), "stream", { account: row!.safe, maxGas: GAS_LIMITS.payout }).catch((e) => fail(400, "heartbeat_refused", explainRevert(e)));
+    // a signed heartbeat is public once relayed: one that is not newer than the last would only burn the relayer's gas
+    const t = await chainNow(ctx);
+    const chain = await ctx.chain.pub.readContract({ address: requireDep(ctx).recurring, abi: purserRecurringAbi, functionName: "streams", args: [sid] });
+    if (Math.min(b.upTo, t) <= Number(chain[7])) fail(409, "stale_heartbeat", "This heartbeat is not newer than the last one.");
+    if (t - Number(kvGet(ctx.db, `heartbeat_at:${sid}`) ?? "0") < 30) fail(429, "too_soon", "A heartbeat for this stream was relayed in the last 30 seconds.");
+    const r = await relay(ctx, encodeFunctionData({ abi: purserRecurringAbi, functionName: "heartbeat", args: [sid, BigInt(b.upTo), b.signature] }), "stream", { account: row!.safe, maxGas: GAS_LIMITS.payout }).catch((e) => fail(400, "heartbeat_refused", explainRevert(e)));
+    kvSet(ctx.db, `heartbeat_at:${sid}`, String(t));
     return send(c, { txHash: r.transactionHash });
   });
   /** Settle now: for the paying account's or the payee account's own key, once it is worth its gas, at most every ten minutes. */

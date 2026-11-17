@@ -393,6 +393,8 @@ export interface AtCostResult {
 }
 
 const inFlight = new Map<string, number>();
+/** What calls still running have reserved, per account: a withdrawal leaves that much again in the credit. */
+const inFlightMicro = new Map<string, bigint>();
 
 let clientFactory: (() => Anthropic) | null = null;
 /** Tests swap the provider client for a stand-in. */
@@ -495,6 +497,31 @@ async function callAtCost(
   // 3. the most this call can cost is paid before the model is asked: from the credit, topped up on chain if short
   const funded = await fund(ctx, auth, maxCost, chosen.name);
   if (!funded.ok) return refuseAndRelease(funded.refusal);
+  const key = lower(auth.safe);
+  inFlightMicro.set(key, (inFlightMicro.get(key) ?? 0n) + maxCost);
+  try {
+    return await answer(ctx, auth, chosen, maxCost, maxOut, hold, taskId, skipped, a, funded, settled);
+  } finally {
+    const left = (inFlightMicro.get(key) ?? maxCost) - maxCost;
+    if (left > 0n) inFlightMicro.set(key, left);
+    else inFlightMicro.delete(key);
+  }
+}
+
+/** The provider call itself, with its reservation paid; settles the real cost against the reservation. */
+async function answer(
+  ctx: Ctx,
+  auth: { safe: Address; session: PrivateKeyAccount | null },
+  chosen: ModelPrice,
+  maxCost: bigint,
+  maxOut: number,
+  hold: string,
+  taskId: string | null,
+  skipped: string[],
+  a: ReturnType<typeof toAnthropic>,
+  funded: Extract<Funded, { ok: true }>,
+  settled: SettleResult | null,
+): Promise<AtCostResult> {
 
   // 4. the call; a call that fails gives the whole reservation back. Long answers are streamed from the provider and
   // collected into one message (the SDK refuses a non-streaming call that could run past ten minutes)
@@ -565,6 +592,10 @@ export const priceList = () =>
 
 // ---------------------------------------------------------------------------------------------------- withdrawing credit
 
+/** The smallest withdrawal ($0.25), unless the whole credit left is less; and how many may wait to be paid per account. */
+const WITHDRAW_MIN = 250_000n;
+const WITHDRAW_PENDING_MAX = 3;
+
 /** The key that holds the models address, when the engine is given it: withdrawals are then paid at once. */
 function refundKey(): PrivateKeyAccount | null {
   const k = process.env.PURSER_MODELS_REFUND_KEY as Hex | undefined;
@@ -590,9 +621,13 @@ const withdrawalView = (r: WithdrawalRow) => ({ id: r.id, safe: r.safe, usd: usd
  * the withdrawal waits for the holder of the models address, and counts as paid only when that transfer is proven.
  */
 export async function withdrawCredit(ctx: Ctx, safe: string, micro?: bigint) {
-  const have = creditMicro(ctx, safe);
+  // a call that is still running may cost more than it reserved: as much again stays in the credit until it ends
+  const have = creditMicro(ctx, safe) - (inFlightMicro.get(lower(safe)) ?? 0n);
   const amount = micro === undefined || micro > have ? have : micro;
-  if (amount <= 0n) fail(409, "no_credit", "There is no unused model credit to withdraw.");
+  if (amount <= 0n) fail(409, "no_credit", "There is no unused model credit to withdraw (calls still running keep their part).");
+  if (amount < WITHDRAW_MIN && amount < have) fail(409, "too_small", `A withdrawal is at least $${usd6(WITHDRAW_MIN)}, or all of the credit when there is less.`);
+  const pending = (ctx.db.prepare("SELECT COUNT(*) AS n FROM model_withdrawals WHERE safe = ? AND status = 'pending'").get(lower(safe)) as { n: number }).n;
+  if (pending >= WITHDRAW_PENDING_MAX) fail(409, "too_many_pending", `This account already has ${WITHDRAW_PENDING_MAX} withdrawals waiting to be paid.`);
   const wid = id("mwd");
   const ok = ctx.db.transaction(() => {
     if (!reserve(ctx, safe, amount)) return false;
@@ -604,7 +639,7 @@ export async function withdrawCredit(ctx: Ctx, safe: string, micro?: bigint) {
   const key = refundKey();
   if (key && ctx.chain.broadcast) {
     try {
-      const r = await ctx.chain.send(key, { to: requireDep(ctx).usdg, data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [lower(safe), toUnits(ctx, amount)] }), maxGas: 200_000n });
+      const r = await ctx.chain.send(key, { to: requireDep(ctx).usdg, data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [lower(safe), toUnits(ctx, amount)] }), maxGas: 200_000n, account: lower(safe) });
       await markWithdrawalPaid(ctx, wid, r.transactionHash);
     } catch {
       /* stays pending; the holder of the models address can pay it */
@@ -652,9 +687,20 @@ registerRoutes((app: Hono, ctx: Ctx) => {
     const b = await body(c, z.object({ usd: z.number().positive().optional() }));
     return send(c, await withdrawCredit(ctx, safe, b.usd === undefined ? undefined : BigInt(Math.round(b.usd * 1_000_000))), 201);
   });
+  /** Oldest first, a page at a time (`after` is the last id of the page before): the oldest waiting one is always on page one. */
   app.get("/v1/models/withdrawals", (c) => {
-    const rows = ctx.db.prepare("SELECT * FROM model_withdrawals WHERE status = ? ORDER BY created_at ASC LIMIT 200").all(c.req.query("status") ?? "pending") as WithdrawalRow[];
-    return send(c, { items: rows.map(withdrawalView), next: null });
+    const status = c.req.query("status") ?? "pending";
+    const limit = Math.min(200, Math.max(1, Number(c.req.query("limit") ?? "50") || 50));
+    const after = c.req.query("after");
+    const from = after ? (ctx.db.prepare("SELECT created_at, rowid AS r FROM model_withdrawals WHERE id = ?").get(after) as { created_at: number; r: number } | undefined) : undefined;
+    if (after && !from) fail(400, "bad_cursor", "Unknown page cursor.");
+    const rows = (
+      from
+        ? ctx.db.prepare("SELECT *, rowid AS r FROM model_withdrawals WHERE status = ? AND (created_at > ? OR (created_at = ? AND rowid > ?)) ORDER BY created_at ASC, rowid ASC LIMIT ?").all(status, from.created_at, from.created_at, from.r, limit + 1)
+        : ctx.db.prepare("SELECT *, rowid AS r FROM model_withdrawals WHERE status = ? ORDER BY created_at ASC, rowid ASC LIMIT ?").all(status, limit + 1)
+    ) as WithdrawalRow[];
+    const page = rows.slice(0, limit);
+    return send(c, { items: page.map(withdrawalView), next: rows.length > limit ? page[page.length - 1].id : null });
   });
   app.post("/v1/models/withdrawals/:id/paid", async (c) => {
     const b = await body(c, z.object({ txHash: zHex }));
