@@ -18,7 +18,12 @@ export function fmt(amount: bigint, decimals: number, dp = 6): string {
   const s = formatUnits(amount, decimals);
   const [i, f = ""] = s.split(".");
   const frac = f.slice(0, dp).replace(/0+$/, "");
-  const withThousands = i.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  // thousands separators in one pass (a regular expression here is quadratic in the length of the number)
+  const sign = i.startsWith("-") ? "-" : "";
+  const digits = sign ? i.slice(1) : i;
+  const groups: string[] = [];
+  for (let k = digits.length; k > 0; k -= 3) groups.push(digits.slice(Math.max(0, k - 3), k));
+  const withThousands = sign + groups.reverse().join(",");
   return `${withThousands}.${frac.padEnd(2, "0")}`;
 }
 

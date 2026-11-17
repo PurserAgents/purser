@@ -20,7 +20,7 @@ import { purserEscrowAbi, safeAbi } from "../../packages/sdk/src/abi.ts";
 import type { HireRules, HireResult, Job, JobDetail, JobStatus, Listing, ListingStats, MarketSummary, PayResult, StoreService } from "../../packages/sdk/src/schema.ts";
 import { accountRow, readRule } from "./accounts.ts";
 import { registerRoutes } from "./api/registry.ts";
-import { agent, body, param, safeOwner, safeParam, send, zAddr, zAmount } from "./api/http.ts";
+import { agent, body, param, safeOwner, safeParam, send, zAddr, zAmount128 } from "./api/http.ts";
 import { chainNow, requireDep, type Ctx } from "./ctx.ts";
 import { kvGet, kvSet } from "./db.ts";
 import { registerTask } from "./engine.ts";
@@ -540,7 +540,7 @@ registerRoutes((app: Hono, ctx: Ctx) => {
         serviceId: z.string().optional(),
         title: z.string().min(1).max(80).optional(),
         description: z.string().max(1000).optional(),
-        price: zAmount.optional(),
+        price: zAmount128.optional(),
         deliverySeconds: z.number().int().min(60).max(30 * 86400),
         reviewSeconds: z.number().int().min(60).max(14 * 86400).default(86400),
         arbiter: zAddr.nullable().default(null),
@@ -572,7 +572,7 @@ registerRoutes((app: Hono, ctx: Ctx) => {
     const auth = agent(ctx, c, "sell");
     const r = listingRow(ctx, param(c, "id"));
     if (!sameAddress(r.seller, auth.safe)) fail(403, "not_yours", "This listing belongs to another account.");
-    const b = await body(c, z.object({ active: z.boolean().optional(), price: zAmount.optional(), description: z.string().max(1000).optional(), deliverySeconds: z.number().int().min(60).max(30 * 86400).optional() }));
+    const b = await body(c, z.object({ active: z.boolean().optional(), price: zAmount128.optional(), description: z.string().max(1000).optional(), deliverySeconds: z.number().int().min(60).max(30 * 86400).optional() }));
     if (b.price !== undefined && BigInt(b.price) === 0n) fail(400, "bad_request", "price must be above zero");
     ctx.db
       .prepare("UPDATE listings SET active = COALESCE(?, active), price = COALESCE(?, price), description = COALESCE(?, description), delivery_seconds = COALESCE(?, delivery_seconds), updated_at = ? WHERE id = ?")
@@ -620,7 +620,7 @@ registerRoutes((app: Hono, ctx: Ctx) => {
   app.put("/v1/accounts/:safe/hire-rules", async (c) => {
     const safe = safeParam(c);
     const who = await safeOwner(ctx, c, safe);
-    const b = await body(c, z.object({ mode: z.enum(["any", "listed", "off"]), sellers: z.array(zAddr).max(200).default([]), maxPerJob: zAmount.nullable().default(null) }));
+    const b = await body(c, z.object({ mode: z.enum(["any", "listed", "off"]), sellers: z.array(zAddr).max(200).default([]), maxPerJob: zAmount128.nullable().default(null) }));
     writeHireRule(ctx, safe, { mode: b.mode, sellers: b.sellers, maxPerJob: b.maxPerJob === null ? null : BigInt(b.maxPerJob) }, now());
     await ctx.audit.append(`owner:${lower(who)}`, "hire_rules.set", safe, { mode: b.mode, sellers: b.sellers.length, maxPerJob: b.maxPerJob });
     return send(c, await hireRulesView(ctx, safe));

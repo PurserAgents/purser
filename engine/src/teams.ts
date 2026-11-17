@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Department, OrgChartNode, Team, TeamMember } from "../../packages/sdk/src/schema.ts";
 import { accountRow, prepareSafeTx, readChainAccount, ruleChangeCalls } from "./accounts.ts";
 import { registerRoutes } from "./api/registry.ts";
-import { agent, body, owner, param, safeOwner, send, zAddr, zAmount } from "./api/http.ts";
+import { agent, body, owner, param, safeOwner, send, zAddr, zAmount, zAmount128 } from "./api/http.ts";
 import { requireDep, type Ctx } from "./ctx.ts";
 import { submitIntent } from "./intents.ts";
 import { fail, id, lower, now, sameAddress } from "./util.ts";
@@ -110,7 +110,7 @@ registerRoutes((app: Hono, ctx: Ctx) => {
   app.post("/v1/teams/:id/departments", async (c) => {
     const t = getTeam(ctx, param(c, "id"));
     await safeOwner(ctx, c, t.treasury);
-    const b = await body(c, z.object({ name: z.string().min(1).max(60), dailyBudget: zAmount.nullable().default(null) }));
+    const b = await body(c, z.object({ name: z.string().min(1).max(60), dailyBudget: zAmount128.nullable().default(null) }));
     const did = id("dept");
     ctx.db.prepare("INSERT INTO departments (id, team_id, name, daily_budget, token) VALUES (?, ?, ?, ?, ?)").run(did, t.id, b.name, b.dailyBudget, lower(requireDep(ctx).usdg));
     return send(c, getTeam(ctx, t.id), 201);

@@ -8,7 +8,7 @@ import { decodeHeader, encodeHeader, HEADER_REQUIRED, HEADER_RESPONSE, HEADER_SI
 import { accountRow, readChainAccount } from "./accounts.ts";
 import { checkUrl, guardedFetch } from "./netguard.ts";
 import { registerRoutes } from "./api/registry.ts";
-import { agent, body, param, safeParam, send, zAddr, zAmount } from "./api/http.ts";
+import { agent, body, param, safeParam, send, zAddr, zAmount, zAmount128 } from "./api/http.ts";
 import { requireDep, type Ctx } from "./ctx.ts";
 import { kvGet, kvSet } from "./db.ts";
 import { tagRef } from "./indexer.ts";
@@ -182,7 +182,7 @@ registerRoutes((app: Hono, ctx: Ctx) => {
         name: z.string().min(1).max(60),
         description: z.string().max(500).default(""),
         model: z.enum(["per_call", "per_minute", "subscription"]).default("per_call"),
-        price: zAmount,
+        price: zAmount128,
         token: zAddr.optional(),
         periodSeconds: z.number().int().min(3600).optional(),
         upstream: z.string().url().optional(),
@@ -207,7 +207,7 @@ registerRoutes((app: Hono, ctx: Ctx) => {
     const auth = agent(ctx, c, "sell");
     const s = getService(ctx, param(c, "id"));
     if (s.safe !== lower(auth.safe)) fail(403, "not_yours", "This service belongs to another account.");
-    const b = await body(c, z.object({ active: z.boolean().optional(), price: zAmount.optional(), description: z.string().max(500).optional() }));
+    const b = await body(c, z.object({ active: z.boolean().optional(), price: zAmount128.optional(), description: z.string().max(500).optional() }));
     ctx.db.prepare("UPDATE services SET active = COALESCE(?, active), price = COALESCE(?, price), description = COALESCE(?, description) WHERE id = ?").run(b.active === undefined ? null : b.active ? 1 : 0, b.price ?? null, b.description ?? null, s.id);
     return send(c, serviceView(ctx, getService(ctx, s.id)));
   });

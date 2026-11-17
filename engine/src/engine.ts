@@ -7,6 +7,7 @@ import type { Config } from "./config.ts";
 import type { Ctx } from "./ctx.ts";
 import { kvGet, kvSet, openDb } from "./db.ts";
 import { indexOnce } from "./indexer.ts";
+import { clampStoredAmounts } from "./limits.ts";
 import { makeTokens } from "./tokens.ts";
 
 export interface Engine {
@@ -26,6 +27,9 @@ export function registerTask(t: Task) {
 
 export function createEngine(cfg: Config): Engine {
   const db = openDb(cfg.dbPath);
+  // amounts stored before they were bounded are brought within the limit before anything reads them
+  const clamped = clampStoredAmounts(db);
+  if (Object.keys(clamped).length && process.env.PURSER_LOG !== "0") console.log(`[limits] amounts above 2^128 - 1 clamped: ${JSON.stringify(clamped)}`);
   const chain = makeChain(cfg, { get: (k) => kvGet(db, k), set: (k, v) => kvSet(db, k, v) });
   let auditKey = cfg.keys?.audit;
   if (!auditKey) {

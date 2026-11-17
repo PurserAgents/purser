@@ -5,7 +5,7 @@ import { z } from "zod";
 import { purserEscrowAbi } from "../../packages/sdk/src/abi.ts";
 import type { Invoice, InvoiceStatus, PayResult } from "../../packages/sdk/src/schema.ts";
 import { registerRoutes } from "./api/registry.ts";
-import { agent, body, param, send, zAddr, zAmount, zBytes32 } from "./api/http.ts";
+import { agent, body, param, send, zAddr, zAmount128, zBytes32 } from "./api/http.ts";
 import { explainRevert } from "./chain.ts";
 import { chainNow, requireDep, type Ctx } from "./ctx.ts";
 import { ingestReceipt, onExtension } from "./indexer.ts";
@@ -231,7 +231,7 @@ registerRoutes((app: Hono, ctx: Ctx) => {
       c,
       z.object({
         payer: zAddr,
-        amount: zAmount,
+        amount: zAmount128,
         token: zAddr.optional(),
         description: z.string().min(1).max(500),
         deadline: z.number().int().optional(),

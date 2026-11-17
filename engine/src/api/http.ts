@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { ApiScope } from "../../../packages/sdk/src/schema.ts";
 import type { Ctx } from "../ctx.ts";
 import { authAgent, authOwner, requireSafeOwner } from "../keys.ts";
-import { ApiFailure, fail, json, lower } from "../util.ts";
+import { ApiFailure, fail, json, lower, MAX_U128 } from "../util.ts";
 
 export const send = (c: Context, data: unknown, status = 200) =>
   c.body(json(data), status as 200, { "content-type": "application/json; charset=utf-8" });
@@ -27,7 +27,17 @@ export async function body<T extends z.ZodType>(c: Context, schema: T): Promise<
 export const zAddr = z.string().regex(/^0x[0-9a-fA-F]{40}$/, "must be a 0x address").transform((s) => lower(s) as `0x${string}`);
 export const zHex = z.string().regex(/^0x[0-9a-fA-F]*$/, "must be 0x hex").transform((s) => s as `0x${string}`);
 export const zBytes32 = z.string().regex(/^0x[0-9a-fA-F]{64}$/, "must be 32 bytes hex").transform((s) => s as `0x${string}`);
-export const zAmount = z.union([z.string().regex(/^\d+$/, "must be an integer in base units"), z.number().int().nonnegative()]).transform((v) => String(v));
+const MAX_U256 = (1n << 256n) - 1n;
+
+/**
+ * An amount in base units: at most 78 digits and at most 2^256 - 1, so nothing stored or printed can be huge.
+ * zAmount128 is at most 2^128 - 1: what the escrow and the module's rules take (listing prices, invoices, budgets).
+ */
+export const zAmount = z
+  .union([z.string().regex(/^\d{1,78}$/, "must be an integer in base units, at most 78 digits"), z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)])
+  .transform((v) => String(v))
+  .refine((v) => BigInt(v) <= MAX_U256, "must be at most 2^256 - 1");
+export const zAmount128 = zAmount.refine((v) => BigInt(v) <= MAX_U128, "must be at most 2^128 - 1");
 export const zNullableAmount = zAmount.nullable();
 
 export function param(c: Context, name: string): string {
