@@ -59,7 +59,7 @@ export function ShieldLookup() {
           <div className="shield-answer">
             <IconShield size={18} />
             <div>
-              <strong>Not on the list.</strong> No Purser account has caught this address in an attack. The firewall still checks every payment to it.
+              <strong>Not on the shared list.</strong> Fewer than 3 Purser accounts have reported this address. The firewall still checks every payment to it.
             </div>
           </div>
         )

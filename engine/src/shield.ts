@@ -10,7 +10,7 @@ import { chainNow, type Ctx } from "./ctx.ts";
 import { fail, lower, sameAddress } from "./util.ts";
 import { react } from "./watchdog.ts";
 
-// Purser Shield: what one account's firewall catches protects every account.
+// Purser Shield: what an account's firewall catches protects that account, and every account once 3 accounts agree.
 //
 // When the firewall blocks an attack, the attacker's side goes on one list that every account's firewall checks
 // before it signs: the payee planted in hidden text, a wallet that forwards everything through delegated code and the
@@ -275,7 +275,7 @@ function caughtWhere(ctx: Ctx, item: string, hits: number, safe: string): string
   const others = othersFor(ctx, item, safe);
   const attacks = hits === 1 ? "one attack" : `${hits} attacks`;
   if (others === 0) return `This account's own firewall caught it in an earlier attack; it stays refused.`;
-  return `It was caught in ${attacks} aimed at ${others === 1 ? "another account" : `${others} other accounts`}. What one agent's firewall catches protects every agent.`;
+  return `It was caught in ${attacks} aimed at ${others === 1 ? "another account" : `${others} other accounts`}. Once 3 accounts with a payment record report an attacker, every account refuses it.`;
 }
 
 function accountsAimedAt(ctx: Ctx, item: string): number {

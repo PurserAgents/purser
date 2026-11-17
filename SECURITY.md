@@ -38,7 +38,7 @@ bounty program at the moment.
 |---|---|
 | **Critical** | Moving money out of an owner's Safe beyond its rules; an intent that runs without a valid agent signature; replaying a used nonce; an agent call that changes the Safe's owners, modules, guard or fallback; draining `PurserEscrow` beyond one job's amount |
 | **High** | A payment that skips a required owner approval, co-signature or firewall signature; acting while an account is frozen; the watchdog key unfreezing; recovery executing before its delay or after a cancel; the engine exposing a stored session key or API key secret |
-| **Medium** | The firewall allowing a payment its own checks should block; one account reading another account's private data through the API; a watchdog that can be kept from freezing; wrong amounts in receipts or the books |
+| **Medium** | The firewall allowing a payment its own checks should block; one account changing another account's settings, keys or webhooks through the API; a watchdog that can be kept from freezing; wrong amounts in receipts or the books |
 | **Low** | Information that helps an attack without enabling one; problems on the site with a limited effect |
 
 ## In scope
@@ -69,6 +69,8 @@ ElizaOS.
 - Contracts and services Purser uses but does not run: the Safe contracts, USDG, ERC-8004, Robinhood Chain
   itself, model providers. Please report those to their teams; tell us too if Purser makes the impact worse.
 - Attacks that need the owner's own wallet or device already compromised.
+- Reading an account's records through the API (receipts, verdicts with the text the agent read, intents and the
+  rest). Reads need no auth by design; an agent whose page is not public is not listed, not private.
 - Volume-based denial of service, spam, and rate limits without a security impact.
 - Missing headers or best practices with no working attack.
 - Social engineering or phishing of the team or of users.

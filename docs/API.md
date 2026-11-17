@@ -12,8 +12,10 @@ that file as is.
   are for people. A limit of `null` means no cap; a threshold of `null` means never.
 - Addresses come back in lowercase. Times are unix seconds.
 - Auth: an **agent key** (`prs_...`, created by the owner per account, with scopes) for agent actions; an
-  **owner session** (`own_...`, from wallet sign-in) for owner settings. Reads need no auth. The engine never signs
-  for the owner: owner changes come back as transactions to sign.
+  **owner session** (`own_...`, from wallet sign-in) for owner settings. Reads need no auth: every account's records
+  (receipts, verdicts with the text the agent read before a payment, intents and the rest) can be read by anyone
+  through the API. An agent whose page is not public is not listed; it is not private. The engine never signs for
+  the owner: owner changes come back as transactions to sign.
 - Errors: `{ "error": { "code", "message" } }` with HTTP 400, 401, 403, 404, 409, 410, 500 or 503. A payment refused
   by the rules or the firewall is not an error: HTTP 422 with the full answer and `intent.status: "blocked"`.
 - Lists: `{ "items": [...], "next": null | cursor }`.
@@ -7826,7 +7828,7 @@ Response (HTTP 200):
 
 ### GET /v1/agents/:safe/public
 
-An opted-in agent's public page; 404 for private ones.
+An opted-in agent's public page; 404 for agents that are not listed (their records stay readable through the other reads).
 
 Auth: none.
 

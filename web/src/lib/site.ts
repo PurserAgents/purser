@@ -55,7 +55,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { href: "/how", label: "How it works", text: "Accounts, rules and the path of a payment" },
       { href: "/firewall", label: "Watch an attack get blocked", text: "A hidden instruction meets the firewall" },
-      { href: "/shield", label: "Purser Shield", text: "One agent attacked, every agent protected" },
+      { href: "/shield", label: "Purser Shield", text: "A shared list of attackers, checked before every payment" },
       { href: "/models", label: "Models at cost", text: "Every AI model at the provider's price" },
       { href: "/rob", label: "Rob the agent", text: "Talk an AI agent out of $100 and keep it" },
       { href: "/pocket", label: "Purser on your phone", text: "Approve with Face ID, watch live, freeze with one tap" },

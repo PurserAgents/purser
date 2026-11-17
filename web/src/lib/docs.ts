@@ -263,10 +263,10 @@ export const docs: DocGroup[] = [
         id: "shield",
         title: "Purser Shield",
         body: [
-          "When a firewall blocks an attack, the attacker's side goes on one list that every account's firewall checks before it signs: a payee planted in hidden text, a wallet that forwards everything through delegated code and the contract it hands control to, a spender an approval would hand the account to, and a one-way fingerprint of each injected sentence, with addresses and amounts masked so the same sentence matches with another address.",
-          "Only the attacker is shared. The list never holds balances, owners, amounts, the text the agent read or which accounts were attacked; it counts accounts as a number. Purser accounts, addresses on any owner's list and payees that several accounts already paid are never flagged, so planting a known service's address in a page cannot poison the list.",
-          "Each account picks what a match does: `block`, the default, refuses the payment; `warn` holds it with nothing sent until the owner releases or rejects it (`POST /v1/intents/:id/release` or `/reject`). An address on the owner's own list only warns. Scheduled payouts never wait: a flagged payee is not paid again by a subscription or a stream, and accounts paying it get a watchdog alert that freezes them where auto-freeze is on.",
-          "The list is public: `GET /v1/shield` for the list and its totals, `GET /v1/shield/address/:address` to check one address, and the page at /shield. The mode is `GET` and `PATCH /v1/accounts/:safe/shield` with `{ mode: \"block\" | \"warn\" }`.",
+          "When a firewall blocks an attack, the attacker's side is recorded as that account's report: a payee planted in hidden text, a wallet that forwards everything through delegated code and the contract it hands control to, a spender an approval would hand the account to, and a one-way fingerprint of each injected sentence, with addresses and amounts masked so the same sentence matches with another address. A report protects the account that made it at once. Once 3 accounts with a payment record have reported the same attacker, it is on the shared list, and every account's firewall checks it before it signs. Entries no account reported for 30 days stop counting, and an owner can take back their account's report with `DELETE /v1/accounts/:safe/shield/reports/:item`.",
+          "Only the attacker is shared. The list never holds balances, owners, amounts, the text the agent read or which accounts were attacked; it counts accounts as a number. Only a block on a real account, signed by its own agent key, makes a report. Purser accounts and payees that several accounts already paid are never flagged, and an address on an owner's own list is never reported by that owner's account, so planting a known service's address in a page cannot poison the list.",
+          "Each account picks what a match does: `block`, the default, refuses the payment; `warn` holds it with nothing sent until the owner releases or rejects it (`POST /v1/intents/:id/release` or `/reject`). An address on the owner's own list only warns. Scheduled payouts never wait: a flagged payee is not paid again by a subscription or a stream, and accounts paying it get a watchdog alert. A list entry never freezes an account.",
+          "The shared list is public: `GET /v1/shield` for the list and its totals, `GET /v1/shield/address/:address` to check one address, and the page at /shield. The mode is `GET` and `PATCH /v1/accounts/:safe/shield` with `{ mode: \"block\" | \"warn\" }`.",
         ],
       },
       {
@@ -358,7 +358,7 @@ export const docs: DocGroup[] = [
       {
         id: "api",
         title: "API",
-        body: ["The engine serves JSON and Server-Sent Events. Amounts are integers in the token's base units, as strings; addresses are lowercase; times are unix seconds. Agents use an agent key, owners an owner session from a wallet sign-in; reads need none."],
+        body: ["The engine serves JSON and Server-Sent Events. Amounts are integers in the token's base units, as strings; addresses are lowercase; times are unix seconds. Agents use an agent key, owners an owner session from a wallet sign-in; reads need none, so every account's records can be read by anyone."],
         code: [{ label: "Routes", code: apiSample }],
       },
       {
@@ -404,7 +404,7 @@ export const docs: DocGroup[] = [
         id: "leaderboard",
         title: "Leaderboard and public pages",
         body: [
-          "An agent's page and its place on the leaderboard are public only when the owner opts in. Everything else stays in the owner's dashboard.",
+          "An agent's page and its place on the leaderboard are listed only when the owner opts in. An agent that is not listed is not private: its records, such as receipts and firewall verdicts, can still be read through the API.",
         ],
       },
     ],

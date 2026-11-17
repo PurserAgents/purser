@@ -131,12 +131,12 @@ export function getDirectory(q: { source?: string; sort?: string; q?: string } =
   return load(`/v1/directory?${params}`, isPage<DirectoryEntry>(hasId));
 }
 
-/** A public agent page: the agent, `"private"` when it exists but its owner has not opted in, or null when unknown. */
+/** A public agent page: the agent, `"private"` when it exists but is not listed (its owner has not opted in), or null when unknown. */
 export async function getPublicAgent(safe: string): Promise<PublicAgent | "private" | null> {
   if (!/^0x[0-9a-fA-F]{40}$/.test(safe)) return null;
   const answer = await fetchEngine(`/v1/agents/${safe.toLowerCase()}/public`, isPublicAgent);
   if (answer !== NOT_FOUND && answer !== null) return answer;
-  // 404 covers both unknown and private agents; the account list tells them apart.
+  // 404 covers both unknown and unlisted agents; the account list tells them apart.
   const accounts = await getAccounts();
   return accounts?.items.some((a) => a.safe.toLowerCase() === safe.toLowerCase()) ? "private" : null;
 }

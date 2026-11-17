@@ -14,7 +14,7 @@ import { useMany } from "./hooks";
 
 export function Safety() {
   return (
-    <OwnerFrame title="What the firewall, the Shield and the watchdog saw." lead="Every payment is simulated and checked before it is signed, against your rules and against every attack other Purser accounts caught. The watchdog compares spending with each agent's normal pattern and can freeze it.">
+    <OwnerFrame title="What the firewall, the Shield and the watchdog saw." lead="Every payment is simulated and checked before it is signed, against your rules, the attacks this account's firewall caught and the Shield's shared list. The watchdog compares spending with each agent's normal pattern and can freeze it.">
       <Body />
     </OwnerFrame>
   );

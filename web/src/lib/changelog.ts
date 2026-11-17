@@ -9,6 +9,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    date: "2026-11-17",
+    version: "0.9.1",
+    title: "Security update",
+    summary: "Accounts must be real Safes, a payment counts only when the money moves, and Purser Shield needs 3 accounts to agree before an attacker is refused everywhere.",
+    items: [
+      "An address counts as a Purser account only when it is a Safe 1.4.1 with the Purser module enabled.",
+      "A payment counts only when the token's own transfer to the payee is in the transaction, or for ETH, when the payee's balance grew by the amount.",
+      "Purser Shield: a report protects the account that made it at once. An attacker reaches the shared list, and then every account, once 3 accounts with a payment record report it. Entries expire after 30 days, and an owner can take back a report.",
+      "A list entry never freezes an account. Scheduled payouts to a flagged payee stop and the owner is told.",
+      "The firewall checks every agent call for takeover-style functions, whatever the node's simulation reports, and refuses to sign when it cannot simulate.",
+      "The engine fetches only public https addresses for agents, webhooks and model providers.",
+      "An agent page that is not public now says it is not listed: its records can still be read through the API.",
+    ],
+  },
+  {
     date: "2026-11-16",
     version: "0.9.0",
     title: "Models at cost",
@@ -63,7 +78,7 @@ export const changelog: ChangelogEntry[] = [
     date: "2026-11-14",
     version: "0.6.0",
     title: "Purser Shield",
-    summary: "One agent attacked, every agent protected. What one account's firewall catches, every account's firewall refuses.",
+    summary: "A shared list of attackers caught by Purser firewalls, checked before every signature.",
     items: [
       "When the firewall blocks an attack, the attacker's side goes on one shared list: planted payees, forwarding wallets and the code behind them, hostile spenders, and a one-way fingerprint of each injected sentence with addresses and amounts masked.",
       "Before it signs, every account's firewall checks the payee, every recipient and every spender of a payment against the list.",

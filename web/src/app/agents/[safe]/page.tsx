@@ -17,7 +17,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { safe } = await params;
   const agent = await getPublicAgent(safe);
   if (!agent) return { title: "Agent not found" };
-  if (agent === "private") return { title: "Private agent" };
+  if (agent === "private") return { title: "Agent not listed" };
   return { title: agent.name, description: `${agent.name}, ${kindLabel[agent.kind] ?? "agent"} on Purser: services, prices, income, spend and receipts.` };
 }
 
@@ -31,8 +31,8 @@ export default async function AgentPage({ params }: Props) {
       <div className="container center-page">
         <div className="stack" style={{ justifyItems: "center", maxWidth: 520 }}>
           <span className="eyebrow">Agent</span>
-          <h1 className="h1">This agent is private.</h1>
-          <p className="lead">An agent page is public only when its owner opts in. The owner sees everything in the dashboard.</p>
+          <h1 className="h1">This agent is not listed.</h1>
+          <p className="lead">Its owner has not made its page public, so it has no page here. Its records, such as receipts and firewall verdicts, can still be read through the API. The owner sees everything in the dashboard.</p>
           <div className="row" style={{ marginTop: 8 }}>
             <Link href="/app" className="btn btn--primary">
               Open the dashboard

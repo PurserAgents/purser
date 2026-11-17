@@ -334,7 +334,8 @@ test("agent pages: unknown is 404, private stays private", async () => {
   assert.equal((await get("/agents/not-an-address")).status, 404);
   const hidden = await get(`/agents/${HIDDEN}`);
   assert.equal(hidden.status, 200);
-  assert.match(hidden.body, /This agent is private/);
+  assert.match(hidden.body, /This agent is not listed/);
+  assert.match(hidden.body, /can still be read through the API/);
   assert.doesNotMatch(hidden.body, /Enforced on chain/, "no rules shown for a private agent");
 });
 

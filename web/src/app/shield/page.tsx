@@ -25,8 +25,8 @@ const kindLabel: Record<ShieldThreat["kind"], string> = {
 
 const steps = [
   { n: "01", title: "One firewall catches an attack", text: "An agent reads a page with a hidden instruction, or is asked to pay a wallet that forwards everything away. Its firewall simulates the payment and refuses it before anything is signed." },
-  { n: "02", title: "The attacker goes on the list", text: "The attacker's side of that attack is added to one list in the same second: the address, the contract behind it and a fingerprint of the injected sentence." },
-  { n: "03", title: "Every account checks it first", text: "Before any account signs a payment, its firewall checks the payee, every recipient and every spender against the list. The attack that hit one agent never reaches another." },
+  { n: "02", title: "The attacker goes on the list", text: "The attacker's side of that attack is recorded in the same second: the address, the contract behind it and a fingerprint of the injected sentence. The account that caught it refuses it from then on." },
+  { n: "03", title: "Three reports, every account", text: "Once 3 accounts with a payment record report the same attacker, it goes on the shared list. Every account's firewall then checks the payee, every recipient and every spender against it before it signs." },
 ];
 
 const shared = [
@@ -52,10 +52,10 @@ export default async function ShieldPage() {
         eyebrow="Purser Shield"
         title={
           <>
-            One agent attacked, <span className="serif">every agent protected.</span>
+            Three agents attacked, <span className="serif">every agent protected.</span>
           </>
         }
-        lead="Every wallet fights alone. On Purser, each attack the firewall blocks puts the attacker on a list that every account checks before it signs, in the same second."
+        lead="Every wallet fights alone. On Purser, an attack the firewall blocks is refused at once by the account that caught it. Once 3 accounts with a payment record report the same attacker, every account refuses it."
       />
       <div className="container page-body">
         <div className="dash">
@@ -63,7 +63,7 @@ export default async function ShieldPage() {
             <div className="cell">
               <dt className="stat__label">Attackers on the list</dt>
               <dd className="stat__value num">{s ? formatCount(s.addresses) : "0"}</dd>
-              <dd className="stat__note">Addresses caught in an attack</dd>
+              <dd className="stat__note">Reported by 3 or more accounts</dd>
             </div>
             <div className="cell">
               <dt className="stat__label">Injected instructions</dt>
@@ -143,7 +143,7 @@ export default async function ShieldPage() {
 
           <Card title="The list, live" action={s?.lastFlaggedAt ? <span className="small dim">Last added {formatTime(s.lastFlaggedAt)} UTC</span> : null} flush>
             {empty ? (
-              <EmptyState icon={IconShield} title="Nothing on the list yet" text="When a Purser firewall blocks an attack, the attacker's address and a fingerprint of the injected instruction appear here within seconds, with how many accounts it was aimed at." />
+              <EmptyState icon={IconShield} title="Nothing on the list yet" text="When 3 Purser accounts with a payment record have caught the same attacker, its address and a fingerprint of the injected instruction appear here, with how many accounts it was aimed at." />
             ) : (
               <div className="rows">
                 {shield!.threats.map((t) => (
