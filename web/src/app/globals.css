@@ -909,6 +909,25 @@ code {
 .footer__risk {
   max-width: 78ch;
 }
+.footer__token {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-block: var(--s-2);
+  font-size: var(--fs-micro);
+  color: var(--text-3);
+  text-decoration: none;
+}
+.footer__token-symbol {
+  color: var(--text-2);
+  font-weight: 600;
+}
+.footer__token-address {
+  overflow-wrap: anywhere;
+}
+.footer__token:hover .footer__token-address {
+  color: var(--text);
+}
 @media (max-width: 860px) {
   .footer__top {
     grid-template-columns: repeat(3, minmax(0, 1fr));

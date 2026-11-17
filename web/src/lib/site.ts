@@ -11,6 +11,7 @@ export const site = {
   url: "https://purseragents.fun",
   github: "https://github.com/PurserAgents",
   x: "https://x.com/PurserAgents",
+  token: { symbol: "$PURSER", address: "0x3E4587B12ac365407B5c5d788941eAEBcFC18A1E" },
   contact: null,
   chain: {
     id: 4663,

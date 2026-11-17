@@ -14,6 +14,10 @@ export function Footer() {
               <span>{site.name}</span>
             </Link>
             <p className="small muted">{site.tagline} Money, rules and a receipt for every dollar, on {site.chain.name}.</p>
+            <Link href="/token" className="footer__token" aria-label={`${site.token.symbol} contract address`}>
+              <span className="footer__token-symbol">{site.token.symbol}</span>
+              <span className="footer__token-address num">{site.token.address}</span>
+            </Link>
             <div className="row" style={{ gap: 2, marginLeft: -9 }}>
               <a className="icon-btn" href={site.github} target="_blank" rel="noreferrer" aria-label="Purser on GitHub">
                 <IconGitHub />
