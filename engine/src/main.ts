@@ -3,12 +3,17 @@ import { buildApp } from "./api/app.ts";
 import { loadConfig } from "./config.ts";
 import { createEngine } from "./engine.ts";
 import "./features.ts";
+import { dropNonSafeAccounts } from "./proof.ts";
 import { startTokenKeeper, stopTokenKeeper } from "./tokenKeeper.ts";
 
 const cfg = loadConfig();
 const engine = createEngine(cfg);
 const app = buildApp(engine.ctx);
 engine.start();
+// account rows stored before the Safe check existed: anything that is not a real Safe is taken out
+dropNonSafeAccounts(engine.ctx)
+  .then((d) => d.length && console.log(`[accounts] removed ${d.length} address(es) that are not Safes: ${d.join(", ")}`))
+  .catch((e) => console.error(`[accounts] Safe sweep: ${(e as Error).message?.split("\n")[0]}`));
 // The $PURSER keeper: off unless TOKEN_KEEPER=on. A misconfigured keeper is reported and left off; the engine runs on.
 try {
   startTokenKeeper();

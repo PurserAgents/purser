@@ -19,6 +19,7 @@ import { chainNow, requireDep, type Ctx } from "./ctx.ts";
 import { simulate } from "./firewall.ts";
 import { ingestReceipt, tagRef } from "./indexer.ts";
 import { submitIntent } from "./intents.ts";
+import { paymentProven } from "./proof.ts";
 import { id, lower, now, sameAddress, ZERO } from "./util.ts";
 
 export const network = (ctx: Ctx) => `eip155:${ctx.cfg.chainId}`;
@@ -141,7 +142,8 @@ export async function settlePayment(ctx: Ctx, payment: PaymentPayload, req: Paym
       deadline: BigInt(p.deadline),
       meta: { serviceRef: resource, memo: resource ? `x402: ${resource}` : "x402 payment", ...(prior ? JSON.parse(prior.meta) : {}) },
     });
-    const ok = res.intent.status === "executed";
+    // executed means the relay saw the token's own Transfer to the payee; the receipt row is the indexer's agreement
+    const ok = res.intent.status === "executed" && !!res.receipt;
     ctx.db.prepare("UPDATE x402_settlements SET status = ?, tx_hash = ?, error = ? WHERE id = ?").run(ok ? "settled" : "failed", res.intent.txHash, ok ? null : (res.intent.error ?? res.intent.status), sid);
     if (resource) recordServiceUse(ctx, resource, req, lower(p.safe), ok, undefined, `${lower(p.safe)}:${p.nonce}`);
     return ok
@@ -165,6 +167,7 @@ export async function settlePayment(ctx: Ctx, payment: PaymentPayload, req: Paym
     const r = await ctx.chain.send(relayer, { to: tx.to, data: tx.data });
     if (r.status !== "success") throw new Error("reverted");
     await ingestReceipt(ctx, r);
+    if (!(await paymentProven(ctx, r, { payer: a.from, token: req.asset, to: req.payTo, amount: BigInt(a.value) }))) throw new Error("no transfer to the payee in the settlement");
     ctx.db.prepare("UPDATE x402_settlements SET status = 'settled', tx_hash = ? WHERE id = ?").run(lower(r.transactionHash), sid);
     if (resource) recordServiceUse(ctx, resource, req, lower(a.from), true, undefined, `${lower(a.from)}:${lower(a.nonce)}`);
     await ctx.audit.append("facilitator", "x402.settled", tx.viaModule ? req.payTo : null, { settlement: sid, payer: a.from, payTo: req.payTo, amount: a.value, tx: r.transactionHash });

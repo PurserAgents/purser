@@ -4,6 +4,7 @@ import { upsertAccount } from "./accounts.ts";
 import { getLogsChunked } from "./chain.ts";
 import { requireDep, type Ctx } from "./ctx.ts";
 import { kvGet, kvSet } from "./db.ts";
+import { checkSafe, isPurserSafe, txProof } from "./proof.ts";
 import { insertReceipt, type IntentRow } from "./receipts.ts";
 import { lower, now, sameAddress } from "./util.ts";
 
@@ -42,9 +43,24 @@ function setSet(ctx: Ctx, safe: string, kind: string, value: string, on: boolean
     .run(lower(safe), kind, lower(value), on ? 1 : 0);
 }
 
-/** Turns Purser events into receipts and account state. Idempotent: every log has a unique key. */
-export async function ingestLogs(ctx: Ctx, logs: Log[], ts?: number) {
+/**
+ * Turns Purser events into receipts and account state. Idempotent: every log has a unique key. `receipt` is the
+ * whole receipt when the logs come from one transaction the engine has in hand; otherwise a payment's transaction
+ * receipt is fetched to see the money move.
+ */
+export async function ingestLogs(ctx: Ctx, logs: Log[], ts?: number, receipt?: TransactionReceipt) {
   const listeners: Promise<unknown>[] = [];
+  const proofs = new Map<string, Promise<ReturnType<typeof txProof>>>();
+  const proofFor = (tx: string) => {
+    if (!proofs.has(tx))
+      proofs.set(
+        tx,
+        receipt && lower(receipt.transactionHash) === tx
+          ? Promise.resolve(txProof(ctx, receipt))
+          : ctx.chain.pub.getTransactionReceipt({ hash: tx as Hex }).then((r) => txProof(ctx, r)),
+      );
+    return proofs.get(tx)!;
+  };
   // events per transaction, so a payment can be named by what happened around it (a stream settlement, a charge)
   const txEvents = new Map<string, Set<string>>();
   for (const log of logs) {
@@ -65,11 +81,23 @@ export async function ingestLogs(ctx: Ctx, logs: Log[], ts?: number) {
     if (!d) continue;
     const a = d.ev.args;
     const uniq = `${lower(log.transactionHash!)}:${log.logIndex}`;
-    // every log is handled once, whether it arrives with the engine's own transaction or from the poller
-    if (!ctx.db.prepare("INSERT OR IGNORE INTO seen_logs (uniq) VALUES (?)").run(uniq).changes) continue;
+    if (ctx.db.prepare("SELECT 1 FROM seen_logs WHERE uniq = ?").get(uniq)) continue;
     const tx = lower(log.transactionHash!);
     const when = ts ?? now();
     const safe = a.safe ? lower(a.safe as string) : null;
+    // only a real Safe is an account: a contract that merely answers the module's calls gets no row and no receipts
+    if (d.source === "module" && safe) {
+      const real = d.ev.eventName === "AccountInitialized" ? await isPurserSafe(ctx, safe) : (await checkSafe(ctx, safe, { module: false })).ok;
+      if (!real) {
+        if (ctx.db.prepare("INSERT OR IGNORE INTO seen_logs (uniq) VALUES (?)").run(uniq).changes)
+          listeners.push(ctx.audit.append("chain", "event.ignored_not_safe", safe, { event: d.ev.eventName, tx }));
+        continue;
+      }
+    }
+    // Paid is the module's word; the token's own Transfer (or the payee's ETH balance) is the proof
+    const proven = d.ev.eventName === "Paid" ? await (await proofFor(tx)).proves({ payer: safe!, token: a.token as string, to: a.to as string, amount: a.amount as bigint }) : true;
+    // every log is handled once, whether it arrives with the engine's own transaction or from the poller
+    if (!ctx.db.prepare("INSERT OR IGNORE INTO seen_logs (uniq) VALUES (?)").run(uniq).changes) continue;
     switch (d.ev.eventName) {
       case "AccountInitialized":
         upsertAccount(ctx, { safe: safe!, agent: a.agent as string });
@@ -132,6 +160,13 @@ export async function ingestLogs(ctx: Ctx, logs: Log[], ts?: number) {
       case "Paid": {
         const digest = a.digest as string;
         const it = /^0x0+$/.test(digest) ? intentByTx(ctx, tx) : intentByDigest(ctx, digest);
+        if (!proven) {
+          // no money moved: no receipt for the payer, no income for the payee, and the intent did not execute
+          if (it && it.status !== "executed")
+            ctx.db.prepare("UPDATE intents SET status = 'failed', tx_hash = ?, error = ?, updated_at = ? WHERE id = ?").run(tx, UNPROVEN, now(), it.id);
+          listeners.push(ctx.audit.append("chain", "payment.unproven", safe, { tx, to: lower(a.to as string), token: lower(a.token as string), amount: (a.amount as bigint).toString() }));
+          break;
+        }
         const meta = it ? JSON.parse(it.meta) : {};
         insertReceipt(ctx, {
           uniq,
@@ -292,10 +327,12 @@ function jsonable(o: Record<string, unknown>) {
   return JSON.parse(JSON.stringify(o, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
 }
 
+export const UNPROVEN = "The transaction reported a payment, but no money reached the payee.";
+
 /** Ingests the logs of a transaction the engine just sent (so receipts appear before the next poll). */
 export async function ingestReceipt(ctx: Ctx, r: TransactionReceipt) {
   const block = await ctx.chain.pub.getBlock({ blockNumber: r.blockNumber }).catch(() => null);
-  await ingestLogs(ctx, r.logs as Log[], block ? Number(block.timestamp) : undefined);
+  await ingestLogs(ctx, r.logs as Log[], block ? Number(block.timestamp) : undefined, r);
 }
 
 /** Polls the node for Purser events since the last cursor, in 100,000-block spans. */

@@ -4,6 +4,7 @@ import { generatePrivateKey, privateKeyToAccount, type PrivateKeyAccount } from 
 import { safeAbi } from "../../packages/sdk/src/abi.ts";
 import type { ApiKey, ApiScope } from "../../packages/sdk/src/schema.ts";
 import type { Ctx } from "./ctx.ts";
+import { isPurserSafe } from "./proof.ts";
 import { fail, id, lower, now, parseJson } from "./util.ts";
 
 export const ALL_SCOPES: ApiScope[] = ["pay", "models", "x402", "call", "sell", "read", "treasury", "recurring", "invoices"];
@@ -148,9 +149,11 @@ export function authOwner(ctx: Ctx, header: string | undefined): Address {
   return row!.address;
 }
 
-/** The signed-in wallet must be an owner of the Safe (checked on chain). */
+/** The signed-in wallet must be an owner of the Safe (checked on chain), and the address must be a real Purser Safe. */
 export async function requireSafeOwner(ctx: Ctx, header: string | undefined, safe: string): Promise<Address> {
   const who = authOwner(ctx, header);
+  // a contract that is not a Safe can answer isOwner with anything
+  if (!(await isPurserSafe(ctx, safe))) fail(404, "not_account", "No Purser account at this address.");
   const ok = await ctx.chain.pub.readContract({ address: lower(safe), abi: safeAbi, functionName: "isOwner", args: [who] });
   if (!ok) fail(403, "not_owner", "This wallet is not an owner of the account.");
   return who;

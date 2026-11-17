@@ -197,8 +197,8 @@ export async function settle(ctx: Ctx, auth: { safe: Address; session: PrivateKe
       signer: auth.session,
       meta: { memo: `${name}, ${u.calls} call${u.calls === 1 ? "" : "s"} at cost`, model: { provider: PROVIDER, model: u.model, promptTokens: u.prompt, completionTokens: u.completion } },
     });
-    if (res.intent.status !== "executed") {
-      out.refused = { model: u.model, usd: usd6(u.micro), reason: res.intent.status === "blocked" ? res.verdict.summary : res.intent.error ?? `The payment is ${res.intent.status}.` };
+    if (res.intent.status !== "executed" || !res.receipt) {
+      out.refused = { model: u.model, usd: usd6(u.micro), reason: res.intent.status === "blocked" ? res.verdict.summary : !res.receipt && res.intent.status === "executed" ? "The payment was not seen reaching the payee." : res.intent.error ?? `The payment is ${res.intent.status}.` };
       break;
     }
     const usage: ModelUsage = { provider: PROVIDER, model: u.model, promptTokens: u.prompt, completionTokens: u.completion };

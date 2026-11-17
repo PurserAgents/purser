@@ -11,6 +11,7 @@ import type {
   TokenRule,
 } from "../../packages/sdk/src/schema.ts";
 import { requireDep, type Ctx } from "./ctx.ts";
+import { isPurserSafe } from "./proof.ts";
 import { ETH_INFO } from "./tokens.ts";
 import { fail, fmt, lower, MAX_U128, now, parseJson, sameAddress, usd, ZERO } from "./util.ts";
 
@@ -133,6 +134,7 @@ export function accountRow(ctx: Ctx, safe: string): AccountRow | undefined {
   return ctx.db.prepare("SELECT * FROM accounts WHERE safe = ?").get(lower(safe)) as AccountRow | undefined;
 }
 
+/** The module's record of an account. `initialized` is true only for a real Safe with the module enabled. */
 export async function readChainAccount(ctx: Ctx, safe: Address) {
   const dep = requireDep(ctx);
   const acct = await ctx.chain.pub.readContract({
@@ -141,7 +143,8 @@ export async function readChainAccount(ctx: Ctx, safe: Address) {
     functionName: "getAccount",
     args: [safe],
   });
-  return acct;
+  // the module marks any caller that says "module enabled" as initialized; only a real Safe counts here
+  return { ...acct, initialized: acct.initialized && (await isPurserSafe(ctx, safe)) };
 }
 
 export async function readRule(ctx: Ctx, safe: Address, token: Address): Promise<ChainRule> {

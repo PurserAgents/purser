@@ -19,8 +19,9 @@ import type { ModelUsage, PayResult, ReceiptCategory, Verdict } from "../../pack
 import { explainRevert } from "./chain.ts";
 import { chainNow, requireDep, type Ctx } from "./ctx.ts";
 import { evaluate } from "./firewall.ts";
-import { ingestReceipt } from "./indexer.ts";
+import { ingestReceipt, UNPROVEN } from "./indexer.ts";
 import { checkPolicy, type Spend } from "./policy.ts";
+import { paymentProven } from "./proof.ts";
 import { getIntentRow, intentFromRow, receiptFromRow, setIntent, type IntentRow, type ReceiptRow } from "./receipts.ts";
 import { fail, fmt, id, json, lower, now, parseJson, sameAddress, ZERO } from "./util.ts";
 
@@ -259,6 +260,12 @@ async function relay(ctx: Ctx, iid: string, verdict: Verdict): Promise<PayResult
     }
   });
   await ingestReceipt(ctx, receipt);
+  // a successful transaction is not a payment: the money must be seen reaching the payee
+  if (!queued && b.kind === "pay" && !(await paymentProven(ctx, receipt, { payer: b.intent.safe, token: b.intent.token, to: b.intent.to, amount: b.intent.amount }))) {
+    const intent = setIntent(ctx, iid, { status: "failed", error: UNPROVEN, tx_hash: lower(receipt.transactionHash) })!;
+    await ctx.audit.append("engine", "intent.unproven", row.safe, { intent: iid, tx: receipt.transactionHash });
+    return { intent, verdict, receipt: null };
+  }
   const status = queued ? "queued" : "executed";
   const intent = setIntent(ctx, iid, { status, tx_hash: lower(receipt.transactionHash) })!;
   await ctx.audit.append(`agent:${row.safe}`, `intent.${status}`, row.safe, { intent: iid, tx: receipt.transactionHash, summary: row.summary });
