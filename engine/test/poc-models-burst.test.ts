@@ -95,7 +95,8 @@ describe("GHSA-6gqp-w3qv-9vfv: calls sent at the same moment cannot take model c
     assert.equal(b.providerCalls, b.answered, "the provider answered only funded calls");
     paidInFull(safe);
     assert.equal((await usdgBalance(w, company)) - before, topUps(safe), "everything credited reached the models address");
-    assert.ok(b.codes.every((c) => c === "200" || /^402 /.test(c)), b.codes.join(", "));
+    // refused calls are 402 (not paid) or 429 (more than four calls of one account at once)
+    assert.ok(b.codes.every((c) => c === "200" || /^402 /.test(c) || c === "429 too_many_calls"), b.codes.join(", "));
     const next = await ask(secret);
     const body = await next.json();
     assert.notEqual(body.error?.code, "settlement_refused", "there is never a debt to refuse");

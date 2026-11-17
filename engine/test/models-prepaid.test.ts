@@ -129,13 +129,13 @@ describe("models at cost are prepaid: every path to an unpaid call is closed (lo
     // the credit service name on a payment to another address (the agent's own wallet) credits nothing
     const elsewhere = await e.post("/v1/pay", { to: randomAddress(), amount: usdg(5).toString(), service: CREDIT_SERVICE }, key);
     assert.equal(elsewhere.body.intent.status, "executed", JSON.stringify(elsewhere.body));
-    assert.equal(bookTopUp(w.ctx, safe, elsewhere.body.intent.id), 0n);
+    assert.equal(await bookTopUp(w.ctx, safe, elsewhere.body.intent.id), 0n);
     assert.equal(creditMicro(w.ctx, safe), 0n);
     // a payment to the models address with the service name is a top-up, credited once, when it executes
     const direct = await e.post("/v1/pay", { to: company, amount: usdg(1).toString(), service: CREDIT_SERVICE }, key);
     assert.equal(direct.body.intent.status, "executed");
     assert.equal(creditMicro(w.ctx, safe), 1_000_000n);
-    assert.equal(bookTopUp(w.ctx, safe, direct.body.intent.id), 0n, "never twice");
+    assert.equal(await bookTopUp(w.ctx, safe, direct.body.intent.id), 0n, "never twice");
     assert.equal(creditMicro(w.ctx, safe), 1_000_000n);
   });
 

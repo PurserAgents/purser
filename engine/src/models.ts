@@ -13,8 +13,14 @@
  * gas never costs more than the calls). After the call the unused part goes back to the credit. A call is never
  * answered without its maximum cost already paid.
  *
+ * One account runs at most PURSER_MODELS_INFLIGHT calls at once (default 4). A prompt larger than about 20,000 tokens
+ * is counted by the provider first, so the reservation is its real size. Calls with more than 16,000 output tokens
+ * are streamed from the provider. A top-up counts after PURSER_MODELS_CONFIRMATIONS confirmations (default 1, the
+ * block that holds it: Robinhood Chain has one sequencer).
+ *
  * Settings: PURSER_MODELS_KEY (Anthropic key "Purser models"), PURSER_MODELS_PAYTO, PURSER_MODELS_URL (optional
- * base URL, used by tests), PURSER_MODELS_TOPUP_MICRO.
+ * base URL, used by tests), PURSER_MODELS_TOPUP_MICRO, PURSER_MODELS_TOPUP_MAX_MICRO, PURSER_MODELS_INFLIGHT,
+ * PURSER_MODELS_CONFIRMATIONS, PURSER_MODELS_REFUND_KEY.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import type { Hono } from "hono";
@@ -62,6 +68,17 @@ const DEFAULT_OUTPUT = 1024;
 export const modelsConfigured = () => !!process.env.PURSER_MODELS_KEY && !!process.env.PURSER_MODELS_PAYTO;
 /** The smallest top-up of the prepaid credit (PURSER_MODELS_SETTLE_MICRO is the older name of the same setting). */
 const topUpMicro = () => BigInt(process.env.PURSER_MODELS_TOPUP_MICRO ?? process.env.PURSER_MODELS_SETTLE_MICRO ?? "250000");
+/** Calls one account may have running at once: a burst cannot multiply a gap between the bound and the real cost. */
+const inFlightMax = () => Math.max(1, Number(process.env.PURSER_MODELS_INFLIGHT ?? "4"));
+/** Above this many output tokens the provider is called with streaming (the SDK refuses long non-streaming calls). */
+const STREAM_ABOVE = 16_000;
+/** Above this bound on input tokens the prompt is counted by the provider, so the reservation is the real size. */
+const COUNT_ABOVE = 20_000;
+/**
+ * Confirmations a top-up needs before it is credited (PURSER_MODELS_CONFIRMATIONS, default 1: the block that holds it).
+ * Robinhood Chain has one sequencer, so one is final in practice; a higher number waits that many blocks.
+ */
+const confirmations = () => Math.max(1, Number(process.env.PURSER_MODELS_CONFIRMATIONS ?? "1"));
 /** The service name a top-up payment carries; a payment with it to the models address is credited once proven. */
 export const CREDIT_SERVICE = "model:purser/credit";
 const payTo = () => (process.env.PURSER_MODELS_PAYTO ?? fail(503, "models_off", "Models at cost are not switched on for this engine.")) as Address;
@@ -266,13 +283,19 @@ function unitsToMicro(ctx: Ctx, units: bigint): bigint {
  * Credits an executed top-up once: a payment of USDG to the models address with the credit service name, proven on
  * chain (an executed intent with its receipt; the relay only marks an intent executed when the transfer is seen).
  */
-export function bookTopUp(ctx: Ctx, safe: string, intentId: string): bigint {
+export async function bookTopUp(ctx: Ctx, safe: string, intentId: string): Promise<bigint> {
   const dep = requireDep(ctx);
   const it = ctx.db.prepare("SELECT safe, status, token, amount, to_addr, meta FROM intents WHERE id = ?").get(intentId) as { safe: string; status: string; token: string; amount: string; to_addr: string; meta: string } | undefined;
   if (!it || it.status !== "executed" || it.safe !== lower(safe) || !process.env.PURSER_MODELS_PAYTO) return 0n;
   if (JSON.parse(it.meta).serviceRef !== CREDIT_SERVICE || lower(it.token) !== lower(dep.usdg) || lower(it.to_addr) !== lower(process.env.PURSER_MODELS_PAYTO)) return 0n;
-  const rec = ctx.db.prepare("SELECT id FROM receipts WHERE intent_id = ? AND status = 'executed' AND direction = 'out' LIMIT 1").get(intentId) as { id: string } | undefined;
+  const rec = ctx.db.prepare("SELECT id, tx_hash FROM receipts WHERE intent_id = ? AND status = 'executed' AND direction = 'out' LIMIT 1").get(intentId) as { id: string; tx_hash: string | null } | undefined;
   if (!rec) return 0n;
+  if (confirmations() > 1) {
+    if (!rec.tx_hash) return 0n;
+    const r = await ctx.chain.pub.getTransactionReceipt({ hash: rec.tx_hash as Hex }).catch(() => null);
+    const head = await ctx.chain.pub.getBlockNumber({ cacheTime: 0 }).catch(() => null);
+    if (!r || head === null || head - r.blockNumber + 1n < BigInt(confirmations())) return 0n; // the reconcile task credits it later
+  }
   const micro = unitsToMicro(ctx, BigInt(it.amount));
   const fresh = ctx.db.prepare("INSERT OR IGNORE INTO model_topups (intent_id, safe, receipt_id, micro, created_at) VALUES (?, ?, ?, ?, ?)").run(intentId, lower(safe), rec.id, micro, now()).changes;
   if (!fresh) return 0n;
@@ -285,21 +308,21 @@ const installed = new WeakSet<Ctx>();
 export function installHook(ctx: Ctx) {
   if (installed.has(ctx)) return;
   installed.add(ctx);
-  ctx.hooks.afterExecuted.push((safe, iid) => void bookTopUp(ctx, safe, iid));
+  ctx.hooks.afterExecuted.push(async (safe, iid) => void (await bookTopUp(ctx, safe, iid)));
 }
 
 /**
  * Credits every executed top-up not credited yet (one that executed while the engine was down, or that was sent on
  * chain by someone else and found by the indexer), and drops budget holds left by calls that never finished.
  */
-export function reconcileTopUps(ctx: Ctx): number {
+export async function reconcileTopUps(ctx: Ctx): Promise<number> {
   if (!ctx.dep) return 0;
   ctx.db.prepare("DELETE FROM model_holds WHERE created_at < ?").run(now() - 3600);
   const rows = ctx.db
     .prepare("SELECT id, safe FROM intents WHERE status = 'executed' AND json_extract(meta, '$.serviceRef') = ? AND id NOT IN (SELECT intent_id FROM model_topups)")
     .all(CREDIT_SERVICE) as { id: string; safe: string }[];
   let n = 0;
-  for (const r of rows) if (bookTopUp(ctx, r.safe, r.id) > 0n) n++;
+  for (const r of rows) if ((await bookTopUp(ctx, r.safe, r.id)) > 0n) n++;
   return n;
 }
 
@@ -350,9 +373,11 @@ async function fund(ctx: Ctx, auth: { safe: Address; session: PrivateKeyAccount 
       amount = size.base;
       res = await pay(amount);
     }
-    if (res.intent.status === "executed" && res.receipt) bookTopUp(ctx, safe, res.intent.id);
+    if (res.intent.status === "executed" && res.receipt) await bookTopUp(ctx, safe, res.intent.id);
     if (reserve(ctx, safe, maxCost)) return { ok: true, topUp: { res, micro: amount } };
     const st = res.intent.status;
+    if (st === "executed" && confirmations() > 1)
+      return { ok: false, refusal: refuse(402, "topup_pending", `The top-up is paid and counts after ${confirmations()} confirmations. Ask again shortly; the call was not made.`) };
     if (st === "blocked") return { ok: false, refusal: refuse(402, "payment_blocked", res.verdict.summary, { verdict: res.verdict.id }) };
     if (st === "queued" || st === "held" || st === "needs_cosign")
       return { ok: false, refusal: refuse(402, "needs_approval", `Topping up the model credit with $${usd6(amount)} needs the owner's approval under this account's rules. The call was not made.`) };
@@ -366,6 +391,8 @@ export interface AtCostResult {
   status: number;
   body: unknown;
 }
+
+const inFlight = new Map<string, number>();
 
 let clientFactory: (() => Anthropic) | null = null;
 /** Tests swap the provider client for a stand-in. */
@@ -393,13 +420,25 @@ export async function chatAtCost(
   const inEst = estimateInput(req.messages);
   const taskId = meta.taskId ?? null;
 
+  // a large prompt is counted by the provider (free), so the reservation is its real size and not the byte bound
+  const a = toAnthropic(req.messages);
+  let inBound = inEst;
+  if (inEst > COUNT_ABOVE) {
+    try {
+      const counted = await client().messages.countTokens({ model: list[0].id, ...(a.system ? { system: a.system } : {}), messages: a.messages });
+      if (counted.input_tokens > 0 && counted.input_tokens + 64 < inBound) inBound = counted.input_tokens + 64;
+    } catch {
+      /* the byte bound stays */
+    }
+  }
+
   // 1. the cheapest model that may take the call under the owner's budgets
   let chosen: ModelPrice | null = null;
   let maxCost = 0n;
   const skipped: string[] = [];
   let hold = "";
   for (const m of list) {
-    const c = costMicro(m, inEst, maxOut);
+    const c = costMicro(m, inBound, maxOut);
     const h = holdBudget(ctx, auth.safe, m, c, taskId);
     if ("why" in h) skipped.push(h.why);
     else {
@@ -410,6 +449,33 @@ export async function chatAtCost(
     }
   }
   if (!chosen) return refuse(402, "model_budget", skipped.join(" "), { budgets: true });
+  const key = lower(auth.safe);
+  if ((inFlight.get(key) ?? 0) >= inFlightMax()) {
+    releaseHold(ctx, hold);
+    return refuse(429, "too_many_calls", `This account already has ${inFlightMax()} model calls running. Wait for one to finish.`);
+  }
+  inFlight.set(key, (inFlight.get(key) ?? 0) + 1);
+  try {
+    return await callAtCost(ctx, auth, chosen, maxCost, maxOut, hold, taskId, skipped, a);
+  } finally {
+    const n = (inFlight.get(key) ?? 1) - 1;
+    if (n > 0) inFlight.set(key, n);
+    else inFlight.delete(key);
+  }
+}
+
+/** One call, once a model is chosen and its budget held: pay for it first, ask the provider, settle the difference. */
+async function callAtCost(
+  ctx: Ctx,
+  auth: { safe: Address; session: PrivateKeyAccount | null },
+  chosen: ModelPrice,
+  maxCost: bigint,
+  maxOut: number,
+  hold: string,
+  taskId: string | null,
+  skipped: string[],
+  a: ReturnType<typeof toAnthropic>,
+): Promise<AtCostResult> {
   const refuseAndRelease = (r: AtCostResult) => {
     releaseHold(ctx, hold);
     return r;
@@ -430,11 +496,12 @@ export async function chatAtCost(
   const funded = await fund(ctx, auth, maxCost, chosen.name);
   if (!funded.ok) return refuseAndRelease(funded.refusal);
 
-  // 4. the call; a call that fails gives the whole reservation back
-  const a = toAnthropic(req.messages);
+  // 4. the call; a call that fails gives the whole reservation back. Long answers are streamed from the provider and
+  // collected into one message (the SDK refuses a non-streaming call that could run past ten minutes)
   let msg: Anthropic.Message;
   try {
-    msg = await client().messages.create({ model: chosen.id, max_tokens: maxOut, ...(a.system ? { system: a.system } : {}), messages: a.messages });
+    const params = { model: chosen.id, max_tokens: maxOut, ...(a.system ? { system: a.system } : {}), messages: a.messages };
+    msg = maxOut > STREAM_ABOVE ? await client().messages.stream(params).finalMessage() : await client().messages.create(params);
   } catch (e) {
     adjust(ctx, auth.safe, maxCost);
     releaseHold(ctx, hold);
@@ -572,7 +639,7 @@ const toMicro = (v: number | null) => (v === null ? null : String(Math.round(v *
 registerRoutes((app: Hono, ctx: Ctx) => {
   // top-ups are credited from the start, not from the first model call; and any missed while down are credited now
   installHook(ctx);
-  reconcileTopUps(ctx);
+  void reconcileTopUps(ctx).catch(() => 0);
 
   app.get("/v1/accounts/:safe/model-credit", (c) => {
     const safe = lower(safeParam(c));
