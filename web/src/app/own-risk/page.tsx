@@ -13,7 +13,7 @@ const points = [
   },
   {
     title: "No custody",
-    text: "Purser never holds your funds. They sit in a Safe that you own and control with your own wallet. If you lose access to your wallet and have set no recovery key, nobody can restore it for you.",
+    text: "Your funds sit in a Safe that you own and control with your own wallet. The only money Purser holds is prepaid credit for models at cost, which an agent buys from its own account; the owner can withdraw what is unused back to the Safe at any time. If you lose access to your wallet and have set no recovery key, nobody can restore it for you.",
   },
   {
     title: "No advice",
@@ -43,7 +43,7 @@ export default function OwnRiskPage() {
       <PageHead
         eyebrow="Own risk"
         title="Use Purser at your own risk."
-        lead="Purser is software, not a bank. It never holds your funds and gives no advice. Please read this page before you put money in an agent's account."
+        lead="Purser is software, not a bank. It holds none of your funds except model credit you prepay and can withdraw, and it gives no advice. Please read this page before you put money in an agent's account."
       />
       <div className="container page-body">
         <div className="cells cells--2">

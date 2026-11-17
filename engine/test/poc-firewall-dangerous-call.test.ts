@@ -94,14 +94,15 @@ describe("GHSA-gx7f-32pr-9pmr: the takeover-call check works with every simulati
         assert.equal((await owned(multi)).toLowerCase(), safe.toLowerCase());
       });
 
-      it(`${backend}: a wrapper no decoder knows is caught by the OwnershipTransferred log`, async () => {
+      it(`${backend}: a wrapper no decoder knows is caught by its call data and the OwnershipTransferred log`, async () => {
         forceBackend(backend);
         const inner = encodeFunctionData({ abi: ownedAbi, functionName: "transferOwnership", args: [attacker] });
         const r = await callOn(multi, encodeFunctionData({ abi: multiAbi(), functionName: "poke", args: [7, inner] }));
         assert.equal(r.intent.status, "blocked", JSON.stringify(r.verdict.reasons));
         const reason = r.verdict.reasons.find((x) => x.code === "dangerous_call");
-        // eth_simulateV1 shows only the outer call, so the log decides; the call tracer also sees the inner call
-        assert.match(reason!.detail, backend === "eth_simulateV1" ? /a change of owner/ : /transferOwnership|a change of owner/);
+        // the selector is found anywhere in the call data, and the log shows the change of owner: either one blocks
+        // (the admin role test below is caught by the log alone)
+        assert.match(reason!.detail, /transferOwnership|a change of owner/);
         assert.equal((await owned(multi)).toLowerCase(), safe.toLowerCase());
       });
 

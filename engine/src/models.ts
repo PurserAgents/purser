@@ -18,16 +18,19 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import type { Hono } from "hono";
-import type { Address } from "viem";
-import type { PrivateKeyAccount } from "viem/accounts";
+import { encodeFunctionData, type Address, type Hex } from "viem";
+import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
+import { erc20Abi } from "../../packages/sdk/src/abi.ts";
 import { z } from "zod";
 import type { ModelUsage, PayResult } from "../../packages/sdk/src/schema.ts";
 import { registerRoutes } from "./api/registry.ts";
-import { agent, body, safeOwner, safeParam, send } from "./api/http.ts";
+import { agent, body, param, safeOwner, safeParam, send, zHex } from "./api/http.ts";
 import { requireDep, type Ctx } from "./ctx.ts";
 import { readChainAccount } from "./accounts.ts";
+import { registerTask } from "./engine.ts";
 import { submitIntent } from "./intents.ts";
-import { fail, id, lower, now, usd } from "./util.ts";
+import { paymentProven } from "./proof.ts";
+import { fail, id, lower, now, sameAddress, usd } from "./util.ts";
 
 export type Level = "fast" | "balanced" | "best";
 
@@ -134,7 +137,10 @@ export function setBudget(ctx: Ctx, safe: string, b: ModelBudget) {
 }
 
 const dayStart = (t = now()) => t - (t % 86400);
-const sum = (ctx: Ctx, where: string, args: unknown[]) => BigInt((ctx.db.prepare(`SELECT COALESCE(SUM(CAST(cost_micro AS INTEGER)), 0) AS n FROM model_calls WHERE provider = '${PROVIDER}' AND ${where}`).get(...args) as { n: number }).n);
+/** What calls cost, plus what calls still running have reserved, so parallel calls cannot step over a budget together. */
+const sum = (ctx: Ctx, where: string, args: unknown[]) =>
+  BigInt((ctx.db.prepare(`SELECT COALESCE(SUM(CAST(cost_micro AS INTEGER)), 0) AS n FROM model_calls WHERE provider = '${PROVIDER}' AND ${where}`).get(...args) as { n: number }).n) +
+  BigInt((ctx.db.prepare(`SELECT COALESCE(SUM(micro), 0) AS n FROM model_holds WHERE ${where}`).get(...args) as { n: number }).n);
 
 /** Why a model may not take this call under the owner's budgets, or null when it may. */
 function overBudget(ctx: Ctx, safe: string, m: ModelPrice, maxCost: bigint, taskId: string | null): string | null {
@@ -146,6 +152,21 @@ function overBudget(ctx: Ctx, safe: string, m: ModelPrice, maxCost: bigint, task
     return `This call could take ${m.name} over its budget of $${usd(BigInt(b.perTaskMicro))} for this task.`;
   return null;
 }
+
+/**
+ * Holds a call's most against the owner's budgets: the check and the hold are one transaction, so calls sent at the same
+ * time are counted against each other. Returns the hold's id, or why the model may not take the call.
+ */
+function holdBudget(ctx: Ctx, safe: string, m: ModelPrice, maxCost: bigint, taskId: string | null): { id: string } | { why: string } {
+  return ctx.db.transaction(() => {
+    const why = overBudget(ctx, safe, m, maxCost, taskId);
+    if (why) return { why };
+    const hid = id("hld");
+    ctx.db.prepare("INSERT INTO model_holds (id, safe, model, task_id, micro, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(hid, lower(safe), m.id, taskId, maxCost, now());
+    return { id: hid };
+  })();
+}
+const releaseHold = (ctx: Ctx, hid: string) => ctx.db.prepare("DELETE FROM model_holds WHERE id = ?").run(hid);
 
 // ---------------------------------------------------------------------------------------------------- owed and settlement
 
@@ -260,11 +281,39 @@ export function bookTopUp(ctx: Ctx, safe: string, intentId: string): bigint {
 }
 
 const installed = new WeakSet<Ctx>();
-/** A top-up the owner approved later (queued, then executed) is credited when it executes. */
-function installHook(ctx: Ctx) {
+/** A top-up the owner approved later (queued, then executed) is credited when it executes. Installed at startup. */
+export function installHook(ctx: Ctx) {
   if (installed.has(ctx)) return;
   installed.add(ctx);
   ctx.hooks.afterExecuted.push((safe, iid) => void bookTopUp(ctx, safe, iid));
+}
+
+/**
+ * Credits every executed top-up not credited yet (one that executed while the engine was down, or that was sent on
+ * chain by someone else and found by the indexer), and drops budget holds left by calls that never finished.
+ */
+export function reconcileTopUps(ctx: Ctx): number {
+  if (!ctx.dep) return 0;
+  ctx.db.prepare("DELETE FROM model_holds WHERE created_at < ?").run(now() - 3600);
+  const rows = ctx.db
+    .prepare("SELECT id, safe FROM intents WHERE status = 'executed' AND json_extract(meta, '$.serviceRef') = ? AND id NOT IN (SELECT intent_id FROM model_topups)")
+    .all(CREDIT_SERVICE) as { id: string; safe: string }[];
+  let n = 0;
+  for (const r of rows) if (bookTopUp(ctx, r.safe, r.id) > 0n) n++;
+  return n;
+}
+
+/** The largest single top-up when calls come fast (PURSER_MODELS_TOPUP_MAX_MICRO, default $5). */
+const topUpMaxMicro = () => BigInt(process.env.PURSER_MODELS_TOPUP_MAX_MICRO ?? "5000000");
+
+/** How much to top up: what the call is short of, at least the minimum, and twice the last top-up when that was recent. */
+function topUpSize(ctx: Ctx, safe: string, short: bigint): { amount: bigint; base: bigint } {
+  const base = short > topUpMicro() ? short : topUpMicro();
+  const last = ctx.db.prepare("SELECT micro, created_at FROM model_topups WHERE safe = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(lower(safe)) as { micro: number; created_at: number } | undefined;
+  if (!last || now() - last.created_at > 600) return { amount: base, base };
+  const doubled = BigInt(last.micro) * 2n;
+  const capped = doubled > topUpMaxMicro() ? topUpMaxMicro() : doubled;
+  return { amount: capped > base ? capped : base, base };
 }
 
 // one top-up at a time per account, so a burst of calls does not pay several times for the same shortfall
@@ -285,15 +334,22 @@ async function fund(ctx: Ctx, auth: { safe: Address; session: PrivateKeyAccount 
   if (reserve(ctx, safe, maxCost)) return { ok: true, topUp: null };
   return serial(safe, async (): Promise<Funded> => {
     if (reserve(ctx, safe, maxCost)) return { ok: true, topUp: null };
-    const short = maxCost - creditMicro(ctx, safe);
-    const amount = short > topUpMicro() ? short : topUpMicro();
-    const res = await submitIntent(ctx, {
-      safe: auth.safe,
-      spec: { kind: "pay", pay: { token: requireDep(ctx).usdg, to: payTo(), amount: toUnits(ctx, amount), service: CREDIT_SERVICE } },
-      category: "model",
-      signer: auth.session,
-      meta: { memo: `Models at cost: prepaid credit for ${label} and later calls` },
-    });
+    const size = topUpSize(ctx, safe, maxCost - creditMicro(ctx, safe));
+    const pay = (micro: bigint) =>
+      submitIntent(ctx, {
+        safe: auth.safe,
+        spec: { kind: "pay", pay: { token: requireDep(ctx).usdg, to: payTo(), amount: toUnits(ctx, micro), service: CREDIT_SERVICE } },
+        category: "model",
+        signer: auth.session,
+        meta: { memo: `Models at cost: prepaid credit for ${label} and later calls` },
+      });
+    let amount = size.amount;
+    let res = await pay(amount);
+    // a larger top-up the rules or the firewall refuse is tried once more at the size the call needs
+    if (res.intent.status === "blocked" && amount > size.base) {
+      amount = size.base;
+      res = await pay(amount);
+    }
     if (res.intent.status === "executed" && res.receipt) bookTopUp(ctx, safe, res.intent.id);
     if (reserve(ctx, safe, maxCost)) return { ok: true, topUp: { res, micro: amount } };
     const st = res.intent.status;
@@ -341,32 +397,38 @@ export async function chatAtCost(
   let chosen: ModelPrice | null = null;
   let maxCost = 0n;
   const skipped: string[] = [];
+  let hold = "";
   for (const m of list) {
     const c = costMicro(m, inEst, maxOut);
-    const why = overBudget(ctx, auth.safe, m, c, taskId);
-    if (why) skipped.push(why);
+    const h = holdBudget(ctx, auth.safe, m, c, taskId);
+    if ("why" in h) skipped.push(h.why);
     else {
       chosen = m;
       maxCost = c;
+      hold = h.id;
       break;
     }
   }
   if (!chosen) return refuse(402, "model_budget", skipped.join(" "), { budgets: true });
+  const refuseAndRelease = (r: AtCostResult) => {
+    releaseHold(ctx, hold);
+    return r;
+  };
 
   // 2. calls answered before credit existed are paid first; one that cannot be paid stops every new call
   installHook(ctx);
   let settled: SettleResult | null = null;
   if (unpaid(ctx, auth.safe).some((u) => u.micro > 0n)) {
     settled = await settle(ctx, auth);
-    if (settled.refused) return refuse(402, "settlement_refused", `Paying for earlier model calls was refused: ${settled.refused.reason}`, { owedUsd: usd6(owedMicro(unpaid(ctx, auth.safe))) });
+    if (settled.refused) return refuseAndRelease(refuse(402, "settlement_refused", `Paying for earlier model calls was refused: ${settled.refused.reason}`, { owedUsd: usd6(owedMicro(unpaid(ctx, auth.safe))) }));
   }
   const acct = await readChainAccount(ctx, auth.safe);
-  if (!acct.initialized) return refuse(402, "not_account", "This address has no Purser account.");
-  if (acct.frozen) return refuse(402, "account_frozen", "The account is frozen. No model calls until the owner unfreezes it.");
+  if (!acct.initialized) return refuseAndRelease(refuse(402, "not_account", "This address has no Purser account."));
+  if (acct.frozen) return refuseAndRelease(refuse(402, "account_frozen", "The account is frozen. No model calls until the owner unfreezes it."));
 
   // 3. the most this call can cost is paid before the model is asked: from the credit, topped up on chain if short
   const funded = await fund(ctx, auth, maxCost, chosen.name);
-  if (!funded.ok) return funded.refusal;
+  if (!funded.ok) return refuseAndRelease(funded.refusal);
 
   // 4. the call; a call that fails gives the whole reservation back
   const a = toAnthropic(req.messages);
@@ -375,6 +437,7 @@ export async function chatAtCost(
     msg = await client().messages.create({ model: chosen.id, max_tokens: maxOut, ...(a.system ? { system: a.system } : {}), messages: a.messages });
   } catch (e) {
     adjust(ctx, auth.safe, maxCost);
+    releaseHold(ctx, hold);
     const status = (e as { status?: number }).status;
     return refuse(502, "provider_error", `${chosen.name} did not answer: ${(e as Error).message?.split("\n")[0] ?? "error"}. Nothing was charged.`, { providerStatus: status ?? null });
   }
@@ -385,9 +448,13 @@ export async function chatAtCost(
   adjust(ctx, auth.safe, maxCost - cost);
   const callId = id("mdl");
   const paidBy = (ctx.db.prepare("SELECT receipt_id FROM model_topups WHERE safe = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").get(lower(auth.safe)) as { receipt_id: string } | undefined)?.receipt_id ?? "credit";
-  ctx.db
-    .prepare("INSERT INTO model_calls (id, safe, provider, model, prompt_tokens, completion_tokens, cost_micro, receipt_id, task_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(callId, lower(auth.safe), PROVIDER, chosen.id, input, output, cost.toString(), paidBy, taskId, now());
+  // the real cost replaces the hold in one step, so the budget never counts the call twice or not at all
+  ctx.db.transaction(() => {
+    ctx.db
+      .prepare("INSERT INTO model_calls (id, safe, provider, model, prompt_tokens, completion_tokens, cost_micro, receipt_id, task_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(callId, lower(auth.safe), PROVIDER, chosen!.id, input, output, cost.toString(), paidBy, taskId, now());
+    releaseHold(ctx, hold);
+  })();
   ctx.bus.emit("model", lower(auth.safe), { id: callId, model: chosen.id, costUsd: usd6(cost) });
 
   const text = msg.content.map((b) => (b.type === "text" ? b.text : "")).join("");
@@ -429,6 +496,70 @@ export const priceList = () =>
     markup: "0",
   }));
 
+// ---------------------------------------------------------------------------------------------------- withdrawing credit
+
+/** The key that holds the models address, when the engine is given it: withdrawals are then paid at once. */
+function refundKey(): PrivateKeyAccount | null {
+  const k = process.env.PURSER_MODELS_REFUND_KEY as Hex | undefined;
+  if (!k) return null;
+  const a = privateKeyToAccount(k);
+  return process.env.PURSER_MODELS_PAYTO && sameAddress(a.address, process.env.PURSER_MODELS_PAYTO) ? a : null;
+}
+
+interface WithdrawalRow {
+  id: string;
+  safe: string;
+  micro: number;
+  status: "pending" | "paid";
+  tx_hash: string | null;
+  created_at: number;
+  paid_at: number | null;
+}
+const withdrawalView = (r: WithdrawalRow) => ({ id: r.id, safe: r.safe, usd: usd6(BigInt(r.micro)), status: r.status, txHash: r.tx_hash, createdAt: r.created_at, paidAt: r.paid_at });
+
+/**
+ * The owner takes unused credit back to the Safe. The amount leaves the credit at once (calls cannot spend it any
+ * more); it is paid from the models address in USDG. With the models key on the engine that happens now; otherwise
+ * the withdrawal waits for the holder of the models address, and counts as paid only when that transfer is proven.
+ */
+export async function withdrawCredit(ctx: Ctx, safe: string, micro?: bigint) {
+  const have = creditMicro(ctx, safe);
+  const amount = micro === undefined || micro > have ? have : micro;
+  if (amount <= 0n) fail(409, "no_credit", "There is no unused model credit to withdraw.");
+  const wid = id("mwd");
+  const ok = ctx.db.transaction(() => {
+    if (!reserve(ctx, safe, amount)) return false;
+    ctx.db.prepare("INSERT INTO model_withdrawals (id, safe, micro, status, created_at) VALUES (?, ?, ?, 'pending', ?)").run(wid, lower(safe), amount, now());
+    return true;
+  })();
+  if (!ok) fail(409, "no_credit", "The credit changed; ask again.");
+  await ctx.audit.append(`owner:${lower(safe)}`, "models.withdraw", lower(safe), { withdrawal: wid, usd: usd6(amount) });
+  const key = refundKey();
+  if (key && ctx.chain.broadcast) {
+    try {
+      const r = await ctx.chain.send(key, { to: requireDep(ctx).usdg, data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [lower(safe), toUnits(ctx, amount)] }), maxGas: 200_000n });
+      await markWithdrawalPaid(ctx, wid, r.transactionHash);
+    } catch {
+      /* stays pending; the holder of the models address can pay it */
+    }
+  }
+  return withdrawalView(ctx.db.prepare("SELECT * FROM model_withdrawals WHERE id = ?").get(wid) as WithdrawalRow);
+}
+
+/** A withdrawal is paid when its transaction holds the USDG Transfer from the models address to the Safe, exactly. */
+export async function markWithdrawalPaid(ctx: Ctx, wid: string, tx: Hex) {
+  const w = ctx.db.prepare("SELECT * FROM model_withdrawals WHERE id = ?").get(wid) as WithdrawalRow | undefined;
+  if (!w) fail(404, "not_found", "No such withdrawal.");
+  if (w!.status === "paid") return withdrawalView(w!);
+  if (ctx.db.prepare("SELECT 1 FROM model_withdrawals WHERE tx_hash = ?").get(lower(tx))) fail(409, "tx_used", "That transaction already paid a withdrawal.");
+  const proven = await paymentProven(ctx, tx, { payer: payTo(), token: requireDep(ctx).usdg, to: w!.safe, amount: toUnits(ctx, BigInt(w!.micro)) }).catch(() => false);
+  if (!proven) fail(422, "not_paid", "That transaction does not pay this withdrawal from the models address.");
+  ctx.db.prepare("UPDATE model_withdrawals SET status = 'paid', tx_hash = ?, paid_at = ? WHERE id = ? AND status = 'pending'").run(lower(tx), now(), wid);
+  return withdrawalView(ctx.db.prepare("SELECT * FROM model_withdrawals WHERE id = ?").get(wid) as WithdrawalRow);
+}
+
+registerTask({ name: "model-credit", every: 60_000, run: async (c) => reconcileTopUps(c) });
+
 // ---------------------------------------------------------------------------------------------------- routes
 
 const zBudget = z.object({
@@ -439,6 +570,30 @@ const zBudget = z.object({
 const toMicro = (v: number | null) => (v === null ? null : String(Math.round(v * 1_000_000)));
 
 registerRoutes((app: Hono, ctx: Ctx) => {
+  // top-ups are credited from the start, not from the first model call; and any missed while down are credited now
+  installHook(ctx);
+  reconcileTopUps(ctx);
+
+  app.get("/v1/accounts/:safe/model-credit", (c) => {
+    const safe = lower(safeParam(c));
+    const rows = ctx.db.prepare("SELECT * FROM model_withdrawals WHERE safe = ? ORDER BY created_at DESC LIMIT 50").all(safe) as WithdrawalRow[];
+    return send(c, { creditUsd: usd6s(creditMicro(ctx, safe)), withdrawals: rows.map(withdrawalView), paidAtOnce: !!refundKey() });
+  });
+  app.post("/v1/accounts/:safe/model-credit/withdraw", async (c) => {
+    const safe = safeParam(c);
+    await safeOwner(ctx, c, safe);
+    const b = await body(c, z.object({ usd: z.number().positive().optional() }));
+    return send(c, await withdrawCredit(ctx, safe, b.usd === undefined ? undefined : BigInt(Math.round(b.usd * 1_000_000))), 201);
+  });
+  app.get("/v1/models/withdrawals", (c) => {
+    const rows = ctx.db.prepare("SELECT * FROM model_withdrawals WHERE status = ? ORDER BY created_at ASC LIMIT 200").all(c.req.query("status") ?? "pending") as WithdrawalRow[];
+    return send(c, { items: rows.map(withdrawalView), next: null });
+  });
+  app.post("/v1/models/withdrawals/:id/paid", async (c) => {
+    const b = await body(c, z.object({ txHash: zHex }));
+    return send(c, await markWithdrawalPaid(ctx, param(c, "id"), b.txHash));
+  });
+
   app.get("/v1/models/prices", (c) => send(c, { items: priceList(), topUpUsd: usd6(topUpMicro()), settleAtUsd: usd6(topUpMicro()), prepaid: true, on: modelsConfigured(), next: null }));
 
   app.post("/v1/models/settle", async (c) => {

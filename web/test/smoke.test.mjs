@@ -406,7 +406,7 @@ test("token page says $PURSER is live and shows no fee percentages or split", as
 
 test("own-risk page carries the disclaimer", async () => {
   const text = textOf((await get("/own-risk")).body);
-  for (const phrase of ["not a bank", "never holds your funds", "advice", "at your own risk"]) {
+  for (const phrase of ["not a bank", "your funds stay in your Safe", "model credit", "withdraw", "advice", "at your own risk"]) {
     assert.match(text, new RegExp(phrase, "i"));
   }
 });

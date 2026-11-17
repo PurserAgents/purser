@@ -16,9 +16,9 @@ import { api, type Api } from "./util-api.ts";
 
 describe("the guarded fetch", () => {
   it("knows which addresses are not on the public internet", () => {
-    for (const a of ["127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "::1", "::", "fe80::1", "fd12:3456::1", "::ffff:127.0.0.1", "::ffff:7f00:1", "64:ff9b::a9fe:a9fe", "224.0.0.1", "::7f00:1", "::a9fe:a9fe", "64:ff9b:1::808:808", "2002:7f00:1::1", "2002:a00:1::", "2001:0:4136:e378:8000:63bf:3fff:fdd2", "not-an-address"])
+    for (const a of ["127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "::1", "::", "fe80::1", "fd12:3456::1", "::ffff:127.0.0.1", "::ffff:7f00:1", "64:ff9b::a9fe:a9fe", "224.0.0.1", "::7f00:1", "::a9fe:a9fe", "64:ff9b:1::808:808", "2002:7f00:1::1", "2002:a00:1::", "2001:0:4136:e378:8000:63bf:3fff:fdd2", "::ffff:0:7f00:1", "::ffff:0:a9fe:a9fe", "::ffff:0:10.0.0.1", "not-an-address"])
       assert.equal(isPrivateAddress(a), true, a);
-    for (const a of ["1.1.1.1", "8.8.8.8", "104.16.0.1", "2606:4700::1111", "2001:4860:4860::8888", "64:ff9b::808:808", "2002:808:808::1"]) assert.equal(isPrivateAddress(a), false, a);
+    for (const a of ["1.1.1.1", "8.8.8.8", "104.16.0.1", "2606:4700::1111", "2001:4860:4860::8888", "64:ff9b::808:808", "2002:808:808::1", "::ffff:0:808:808"]) assert.equal(isPrivateAddress(a), false, a);
   });
 
   it("refuses plain http, credentials, private literals and internal names before anything is sent", () => {

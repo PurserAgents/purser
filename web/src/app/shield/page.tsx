@@ -9,7 +9,7 @@ import type { ShieldThreat } from "@/lib/types";
 
 export const metadata: Metadata = {
   title: "Purser Shield",
-  description: "One agent attacked, every agent protected. Each attack the firewall blocks puts the attacker on a list every Purser account checks before it signs.",
+  description: "Each attack a firewall blocks is refused by the account that caught it, and by every Purser account once 3 independent accounts with a payment history report it.",
 };
 
 export const revalidate = 15;

@@ -105,12 +105,15 @@ describe("Purser Shield: accounts attacked, every account protected (local)", ()
     assert.equal(feed.threats.find((x: any) => x.address === code)?.kind, "forwarding_code");
   });
 
-  it("never flags a Purser account, even when a page plants it", async () => {
+  it("a Purser account planted in a page is refused by the account that caught it, and listed for others only by independent reporters", async () => {
+    // accounts are cheap to make, so an account is reported like any address; one report does not reach other accounts
     const v = await pay(a, b, usdg(5), planted(b));
     assert.equal(v.verdict.decision, "block");
-    assert.equal((await e.get(`/v1/shield/address/${b}`)).body.flagged, false);
-    const clean = await pay(a, b, usdg(5), "Move the weekly budget to the research agent.");
-    assert.equal(clean.intent.status, "executed", clean.intent.error ?? "");
+    assert.equal((await e.get(`/v1/shield/address/${b}`)).body.flagged, false, "one report is not the shared list");
+    const again = await pay(a, b, usdg(5), "Move the weekly budget to the research agent.");
+    assert.ok(again.verdict.reasons.some((r) => r.code === "shield"), "the account that caught it refuses it");
+    const other = await submitIntent(w.ctx, { safe: reporters[1], spec: { kind: "pay", pay: { token: w.dep.usdg, to: b, amount: usdg(1) } }, category: "transfer", signer: w.agent, dryRun: true });
+    assert.equal(other.verdict.reasons.some((r) => r.code === "shield"), false, "other accounts are not affected by one report");
   });
 
   it("warn mode holds the payment for the owner, who releases or rejects it", async () => {

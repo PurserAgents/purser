@@ -8,7 +8,7 @@ import type { PayResult, Stream, Subscription, Verdict } from "../../packages/sd
 import { readRule } from "./accounts.ts";
 import { registerRoutes } from "./api/registry.ts";
 import { agent, body, param, safeParam, send, zAddr, zAmount, zHex } from "./api/http.ts";
-import { explainRevert } from "./chain.ts";
+import { explainRevert, GAS_LIMITS } from "./chain.ts";
 import { chainNow, requireDep, type Ctx } from "./ctx.ts";
 import { registerTask } from "./engine.ts";
 import { evaluate, getVerdict } from "./firewall.ts";
@@ -271,9 +271,13 @@ for (const kind of ["stream", "subscription"] as const) {
 
 // ---------------------------------------------------------------------------------------------------- scheduler
 
-async function relay(ctx: Ctx, data: Hex, category: string) {
+/**
+ * Sends a recurring transaction from the relayer. `account` is the Safe that pays: the gas counts against its share of
+ * the day. Payouts get a small gas limit, so a payee contract that burns gas cannot take more than one payout's worth.
+ */
+async function relay(ctx: Ctx, data: Hex, category: string, opts: { account: string | null; maxGas?: bigint }) {
   const dep = requireDep(ctx);
-  const r = await ctx.chain.send(ctx.chain.accounts.relayer!, { to: dep.recurring, data });
+  const r = await ctx.chain.send(ctx.chain.accounts.relayer!, { to: dep.recurring, data, account: opts.account ?? undefined, maxGas: opts.maxGas });
   if (r.status !== "success") throw new Error("reverted");
   tagTx(ctx, r.transactionHash, category);
   await ingestReceipt(ctx, r);
@@ -288,6 +292,20 @@ async function relay(ctx: Ctx, data: Hex, category: string) {
  * once an hour.
  */
 export const PAYOUT_RECHECK = 3600;
+/** A stream payout worth less than this (in micro-dollars) waits until it is worth its gas, or the stream ends. */
+const payoutMinMicro = () => BigInt(process.env.PURSER_PAYOUT_MIN_MICRO ?? "10000");
+/** Without a price (ETH with no feed, other tokens), a stream is settled at most this often. */
+const PAYOUT_UNPRICED_EVERY = 3600;
+
+/** Is a stream payout worth sending now? The final one always is; otherwise it must be worth its gas. */
+async function worthSettling(ctx: Ctx, s: { id: string; token: Address; ended: boolean }, due: bigint): Promise<boolean> {
+  if (due === 0n) return false;
+  if (s.ended) return true;
+  const usd = await ctx.tokens.usdMicro(s.token, due);
+  if (usd !== null) return usd >= payoutMinMicro();
+  const last = Number(kvGet(ctx.db, `stream_settled_at:${s.id}`) ?? "0");
+  return (await chainNow(ctx)) - last >= PAYOUT_UNPRICED_EVERY;
+}
 const PAYOUT_DEADLINE = 600;
 
 type Payout = { kind: "stream" | "subscription"; id: string; safe: Address; payee: Address; token: Address; amount: bigint; from: bigint };
@@ -357,9 +375,12 @@ export async function settleStreams(ctx: Ctx) {
     if (due === 0n) continue;
     try {
       const chain = await ctx.chain.pub.readContract({ address: dep.recurring, abi: purserRecurringAbi, functionName: "streams", args: [BigInt(s.id)] });
+      const ended = s.status === "stopped" || s.status === "ended" || Number(chain[5]) <= (await chainNow(ctx));
+      if (!(await worthSettling(ctx, { id: s.id, token: s.token.address, ended }, due))) continue;
       const p = await payoutData(ctx, { kind: "stream", id: s.id, safe: s.safe, payee: s.payee, token: s.token.address, amount: due, from: BigInt(chain[6]) });
       if (!p.data) continue;
-      await relay(ctx, p.data, "stream");
+      await relay(ctx, p.data, "stream", { account: s.safe, maxGas: GAS_LIMITS.payout });
+      kvSet(ctx.db, `stream_settled_at:${s.id}`, String(await chainNow(ctx)));
       n++;
     } catch (e) {
       ctx.bus.emit("stream", s.safe, { event: "settle_failed", id: s.id, reason: explainRevert(e) });
@@ -376,7 +397,7 @@ export async function chargeSubscriptions(ctx: Ctx) {
     try {
       const p = await payoutData(ctx, { kind: "subscription", id: s.id, safe: s.safe, payee: s.payee, token: s.token, amount: BigInt(s.amount), from: BigInt(s.next_due) });
       if (!p.data) continue;
-      await relay(ctx, p.data, "subscription");
+      await relay(ctx, p.data, "subscription", { account: s.safe, maxGas: GAS_LIMITS.payout });
       n++;
     } catch (e) {
       ctx.bus.emit("subscription", s.safe, { event: "charge_failed", id: s.id, reason: explainRevert(e) });
@@ -412,11 +433,29 @@ registerRoutes((app: Hono, ctx: Ctx) => {
   });
   app.post("/v1/streams/:id/heartbeat", async (c) => {
     const b = await body(c, z.object({ upTo: z.number().int(), signature: zHex }));
-    const r = await relay(ctx, encodeFunctionData({ abi: purserRecurringAbi, functionName: "heartbeat", args: [numId(c), BigInt(b.upTo), b.signature] }), "stream").catch((e) => fail(400, "heartbeat_refused", explainRevert(e)));
+    const row = ctx.db.prepare("SELECT safe FROM streams WHERE id = ?").get(String(numId(c))) as { safe: string } | undefined;
+    if (!row) fail(404, "not_found", "No such stream.");
+    const r = await relay(ctx, encodeFunctionData({ abi: purserRecurringAbi, functionName: "heartbeat", args: [numId(c), BigInt(b.upTo), b.signature] }), "stream", { account: row!.safe, maxGas: GAS_LIMITS.payout }).catch((e) => fail(400, "heartbeat_refused", explainRevert(e)));
     return send(c, { txHash: r.transactionHash });
   });
+  /** Settle now: for the paying account's or the payee account's own key, once it is worth its gas, at most every ten minutes. */
   app.post("/v1/streams/:id/settle", async (c) => {
-    const r = await relay(ctx, encodeFunctionData({ abi: purserRecurringAbi, functionName: "settle", args: [numId(c)] }), "stream").catch((e) => fail(400, "settle_refused", explainRevert(e)));
+    const sid = numId(c);
+    const auth = agent(ctx, c, "recurring");
+    const row = ctx.db.prepare("SELECT * FROM streams WHERE id = ?").get(String(sid)) as StreamRow | undefined;
+    if (!row) fail(404, "not_found", "No such stream.");
+    if (!sameAddress(auth.safe, row!.safe) && !sameAddress(auth.safe, row!.payee)) fail(403, "not_yours", "Only the paying account or the payee account may settle this stream.");
+    const t = await chainNow(ctx);
+    if (t - Number(kvGet(ctx.db, `stream_settled_at:${sid}`) ?? "0") < 600) fail(429, "too_soon", "This stream was settled in the last ten minutes.");
+    const dep = requireDep(ctx);
+    const [due] = await ctx.chain.pub.readContract({ address: dep.recurring, abi: purserRecurringAbi, functionName: "accrued", args: [sid] });
+    const chain = await ctx.chain.pub.readContract({ address: dep.recurring, abi: purserRecurringAbi, functionName: "streams", args: [sid] });
+    if (!(await worthSettling(ctx, { id: String(sid), token: row!.token as Address, ended: row!.stopped === 1 || Number(chain[5]) <= t }, due)))
+      fail(409, "too_small", "What is due is not yet worth the gas of a payout.");
+    const p = await payoutData(ctx, { kind: "stream", id: String(sid), safe: row!.safe as Address, payee: row!.payee as Address, token: row!.token as Address, amount: due, from: BigInt(chain[6]) });
+    if (!p.data) fail(422, "payout_blocked", p.blocked!.summary);
+    const r = await relay(ctx, p.data!, "stream", { account: row!.safe, maxGas: GAS_LIMITS.payout }).catch((e) => fail(400, "settle_refused", explainRevert(e)));
+    kvSet(ctx.db, `stream_settled_at:${sid}`, String(t));
     return send(c, { txHash: r.transactionHash });
   });
   app.post("/v1/streams/:id/stop", async (c) => {
@@ -473,6 +512,6 @@ async function stopByAgent(ctx: Ctx, auth: { safe: Address; session: PrivateKeyA
   const data = kind === 1
     ? encodeFunctionData({ abi: purserRecurringAbi, functionName: "stopStream", args: [BigInt(sid), nonce, deadline, sigs] })
     : encodeFunctionData({ abi: purserRecurringAbi, functionName: "cancelSubscription", args: [BigInt(sid), nonce, deadline, sigs] });
-  const r = await relay(ctx, data, kind === 1 ? "stream" : "subscription").catch((e) => fail(400, "stop_refused", explainRevert(e)));
+  const r = await relay(ctx, data, kind === 1 ? "stream" : "subscription", { account: auth.safe }).catch((e) => fail(400, "stop_refused", explainRevert(e)));
   return { txHash: r.transactionHash };
 }

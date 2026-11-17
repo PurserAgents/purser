@@ -72,7 +72,8 @@ function hextets(addr: string): number[] | null {
 const v4of = (hi: number, lo: number) => `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
 
 /**
- * The IPv4 address an IPv6 address carries, checked as IPv4: mapped (::ffff:0:0/96), compatible (::/96), NAT64
+ * The IPv4 address an IPv6 address carries, checked as IPv4: mapped (::ffff:0:0/96), translated (::ffff:0:0:0/96),
+ * compatible (::/96), NAT64
  * (64:ff9b::/96) and 6to4 (2002::/16). Returns "refuse" for forms that carry an address we do not decode the same
  * way everywhere (Teredo 2001::/32, local NAT64 64:ff9b:1::/48), and null for plain IPv6.
  */
@@ -81,6 +82,7 @@ function embeddedV4(addr: string): string | "refuse" | null {
   if (!h) return "refuse";
   const zero = (from: number, to: number) => h.slice(from, to).every((x) => x === 0);
   if (zero(0, 5) && h[5] === 0xffff) return v4of(h[6], h[7]); // ::ffff:a.b.c.d
+  if (zero(0, 4) && h[4] === 0xffff && h[5] === 0) return v4of(h[6], h[7]); // ::ffff:0:a.b.c.d (IPv4-translated)
   if (zero(0, 6)) return h[6] === 0 && h[7] <= 1 ? null : v4of(h[6], h[7]); // ::a.b.c.d (:: and ::1 are checked as IPv6)
   if (h[0] === 0x64 && h[1] === 0xff9b && zero(2, 6)) return v4of(h[6], h[7]); // 64:ff9b::a.b.c.d
   if (h[0] === 0x64 && h[1] === 0xff9b && h[2] === 1) return "refuse"; // 64:ff9b:1::/48

@@ -74,7 +74,7 @@ export default function HowPage() {
                 <li>
                   <IconCheck size={16} />
                   <span>
-                    <strong>Non-custodial.</strong> There is no Purser balance and no pooled account.
+                    <strong>Non-custodial.</strong> Your money stays in your Safe. The one balance at Purser is prepaid model credit, kept per account, and the owner can withdraw what is unused.
                   </span>
                 </li>
                 <li>

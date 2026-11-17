@@ -148,7 +148,7 @@ export default async function HomePage() {
           <SectionHead
             eyebrow="How it works"
             title="From wallet to working agent in four steps."
-            lead="You stay the owner the whole way. Purser never holds your money: it enforces your rules and writes the receipts."
+            lead="You stay the owner the whole way. Your money stays in your Safe, apart from model credit you prepay and can take back: Purser enforces your rules and writes the receipts."
           />
           <Reveal>
             <ol className="cells cells--4">

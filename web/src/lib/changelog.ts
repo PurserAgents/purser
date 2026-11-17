@@ -10,6 +10,20 @@ export interface ChangelogEntry {
 export const changelog: ChangelogEntry[] = [
   {
     date: "2026-11-17",
+    version: "0.10.1",
+    title: "Model credit you can take back",
+    summary: "Unused model credit goes back to the Safe on the owner's word, model budgets hold when calls come at once, and stream payouts wait until they are worth their gas.",
+    items: [
+      "The owner withdraws unused model credit back to the agent's Safe from the dashboard or with POST /v1/accounts/:safe/model-credit/withdraw.",
+      "Model budgets count calls still running, so calls sent together cannot go over a daily or per task budget.",
+      "Top-ups grow when calls come fast and no longer look like a loop to the watchdog.",
+      "Stream payouts count against the paying account's own gas, wait until what is due is worth a payout, and settling on demand needs the account's key.",
+      "Purser Shield: a reporter needs a month of history, three payees, and $5 spent where it cannot be taken back. A Purser account is reported like any other address.",
+      "The firewall finds a takeover call anywhere in an agent's call data, at any depth.",
+    ],
+  },
+  {
+    date: "2026-11-17",
     version: "0.10.0",
     title: "Agents hire agents",
     summary: "A marketplace where agents buy work from each other. The money waits in escrow until the work arrives, and only buyers who paid can rate.",

@@ -22,12 +22,17 @@ import { react } from "./watchdog.ts";
 // - only a block on a real account, signed by its own agent key, reports anything (never a request that fails as
 //   "not an account" or "wrong agent key");
 // - an entry protects only the account that reported it until enough independent accounts in good standing reported
-//   it; then it protects every account. Good standing: at least $25 paid out in listed tokens, the first of those
-//   payments at least 7 days old. Independent: accounts that share an owner (any owner they were ever seen with) or
-//   paid each other are one group, and each group counts once. A reporter that itself paid or was paid by the
+//   it; then it protects every account. Good standing: at least $25 paid out in listed tokens to at least three
+//   different payees, the first of those payments at least 30 days old, and at least $5 of it spent where the account
+//   cannot take it back (prepaid model credit at Purser, or another account with different owners). Independent:
+//   accounts that share an owner (any owner they were ever seen with) or paid each other are one group, and each group
+//   counts once. A reporter that itself paid or was paid by the
 //   address does not count for it. Entries not seen again for a while stop counting, and an owner can take back
 //   their account's report;
-// - an address is never flagged when it is a Purser contract or account, on the reporting account's own list, or
+// - Purser accounts are reported like any address: a Safe is cheap to make, so exempting accounts would give every
+//   attacker a payee the list can never name. Under the rules above, listing an honest account for everyone takes
+//   three independent accounts in good standing each caught by an attack that plants it.
+// - an address is never flagged when it is a Purser contract, on the reporting account's own list, or
 //   paid at least $1 each by enough independent accounts in good standing. One owner's accounts are one group, so
 //   an owner cannot vouch for its own counterparties. An owner who put a flagged address on their own list gets a
 //   warning instead.
@@ -41,7 +46,9 @@ export const SHIELD = {
   trustedPaidUsdMicro: 1_000_000n, // each of them paid it at least $1
   reportersForAll: 3, // an entry protects every account once this many independent accounts in good standing reported it
   standingUsdMicro: 25_000_000n, // good standing: at least $25 paid out in listed tokens
-  standingAgeDays: 7, // and the first of those payments at least this old
+  standingPayees: 3, // to at least this many different payees
+  standingAgeDays: 30, // the first of those payments at least this old
+  standingSpentMicro: 5_000_000n, // and at least $5 of it where the account cannot take it back
   ttlDays: 30, // an entry no account reported for this long stops counting
   minSentence: 24, // shorter sentences are too generic to fingerprint
 };
@@ -121,7 +128,6 @@ export function trusted(ctx: Ctx, address: string): boolean {
   const a = lower(address);
   const dep = ctx.dep;
   if (dep && [dep.module, dep.factory, dep.recurring, dep.escrow, dep.passkey, dep.feeRecipient, dep.usdg, dep.weth].some((x) => x && sameAddress(x, a))) return true;
-  if (ctx.db.prepare("SELECT 1 FROM accounts WHERE safe = ? LIMIT 1").get(a)) return true;
   const payers = (
     ctx.db
       .prepare(
@@ -135,12 +141,33 @@ export function trusted(ctx: Ctx, address: string): boolean {
   return groups(ctx, payers) >= SHIELD.trustedPayers;
 }
 
-/** Good standing: at least $25 paid out in listed tokens, the first of those payments at least 7 days old. */
+/**
+ * Good standing: at least $25 paid out in listed tokens to at least three payees, the first payment 30 days old, and at
+ * least $5 of it spent where the account cannot take it back: prepaid model credit at Purser, or payments to another
+ * account with different owners. Money sent to one's own wallets comes back; these payments do not.
+ */
 export function inStanding(ctx: Ctx, safe: string): boolean {
+  const s = lower(safe);
   const r = ctx.db
-    .prepare("SELECT COALESCE(SUM(CAST(usd_micro AS INTEGER)), 0) AS paid, MIN(created_at) AS first FROM receipts WHERE safe = ? AND direction = 'out' AND status = 'executed' AND CAST(usd_micro AS INTEGER) > 0")
-    .get(lower(safe)) as { paid: number; first: number | null };
-  return BigInt(r.paid) >= SHIELD.standingUsdMicro && r.first !== null && r.first <= Math.floor(Date.now() / 1000) - SHIELD.standingAgeDays * 86400;
+    .prepare(
+      "SELECT COALESCE(SUM(CAST(usd_micro AS INTEGER)), 0) AS paid, MIN(created_at) AS first, COUNT(DISTINCT counterparty) AS payees FROM receipts WHERE safe = ? AND direction = 'out' AND status = 'executed' AND CAST(usd_micro AS INTEGER) > 0",
+    )
+    .get(s) as { paid: number; first: number | null; payees: number };
+  if (BigInt(r.paid) < SHIELD.standingUsdMicro || r.payees < SHIELD.standingPayees) return false;
+  if (r.first === null || r.first > Math.floor(Date.now() / 1000) - SHIELD.standingAgeDays * 86400) return false;
+  const payTo = process.env.PURSER_MODELS_PAYTO?.toLowerCase() ?? "";
+  const mine = new Set(ownersOf(ctx, s));
+  const spent = (
+    ctx.db
+      .prepare(
+        `SELECT r.counterparty, r.service, r.category, CAST(r.usd_micro AS INTEGER) AS micro, (SELECT 1 FROM accounts a WHERE a.safe = r.counterparty) AS account
+         FROM receipts r WHERE r.safe = ? AND r.direction = 'out' AND r.status = 'executed'`,
+      )
+      .all(s) as { counterparty: string; service: string | null; category: string; micro: number; account: number | null }[]
+  )
+    .filter((x) => (x.service === "model:purser/credit" && x.counterparty === payTo) || (x.account && !ownersOf(ctx, x.counterparty).some((o) => mine.has(o))))
+    .reduce((n, x) => n + BigInt(x.micro), 0n);
+  return spent >= SHIELD.standingSpentMicro;
 }
 
 /** Every owner an account was ever seen with: its row and what the indexer remembered. */

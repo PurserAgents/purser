@@ -41,7 +41,8 @@ or keep the money with a service that holds it for you.
 
 Purser is the third option. Every agent gets **its own account inside your own Safe**. You fund it and write the
 rules once. The agent can spend only through those rules, every payment is **simulated and checked before it is
-signed**, and every dollar in or out leaves a **signed, hash-chained receipt**. Purser never holds your money.
+signed**, and every dollar in or out leaves a **signed, hash-chained receipt**. Purser never holds your money,
+except model credit an agent prepays for models at cost, which the owner can withdraw unused at any time.
 
 | | A hot wallet | A custodial balance | **Purser** |
 |---|:---:|:---:|:---:|
@@ -320,7 +321,9 @@ docs/           ARCHITECTURE, API, DESIGN
 ## Security model
 
 - **Non-custodial by construction.** Funds live in the owner's Safe. The only Purser contract that ever holds tokens
-  is `PurserEscrow`, and only for one job between two parties, paid out by rule.
+  is `PurserEscrow`, and only for one job between two parties, paid out by rule. Prepaid model credit is held at
+  Purser's models address, kept per account; the owner withdraws what is unused with
+  `POST /v1/accounts/:safe/model-credit/withdraw`.
 - **The contract is the authority.** Budgets, allowlists, approvals, co-sign and freeze are enforced on chain; the
   engine can be replaced or bypassed without weakening them.
 - **Defence in depth.** Simulation and the firewall stop bad payments before they are signed; the watchdog freezes
@@ -346,7 +349,7 @@ advisories on this repository.
 | End to end in headless Chrome with a wallet, on a fork | 10 |
 
 ```sh
-cd contracts && forge test              # RPC_URL= forge test skips the fork tests
+cd contracts && forge test              # RPC_URL=<node> forge test also runs the fork tests
 cd engine && npm install && npm test
 cd web && npm install && npm test
 cd packages/ai-sdk && npm install && npm test   # also langchain, plugin-purser, sdk, mcp, cli

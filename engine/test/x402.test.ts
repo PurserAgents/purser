@@ -12,7 +12,7 @@ import {
   type SettleResponse,
 } from "../../packages/sdk/src/x402.ts";
 import { listReceipts } from "../src/receipts.ts";
-import { createAccount, fundUsdg, makeWorld, randomAddress, usdg, usdgBalance, type World } from "./harness.ts";
+import { FORK_RPC, createAccount, fundUsdg, makeWorld, randomAddress, usdg, usdgBalance, type World } from "./harness.ts";
 import { api, type Api } from "./util-api.ts";
 
 describe("x402 facilitator and merchant middleware (5.1-5.3, local)", () => {
@@ -130,10 +130,10 @@ describe("x402 facilitator and merchant middleware (5.1-5.3, local)", () => {
   });
 });
 
-describe("x402 on a fork of chain 4663 (real USDG, EIP-3009)", { skip: process.env.RPC_URL === "" }, () => {
+describe("x402 on a fork of chain 4663 (real USDG, EIP-3009)", { skip: !FORK_RPC }, () => {
   let w: World;
   before(async () => {
-    w = await makeWorld({ fork: process.env.RPC_URL || "https://rpc.mainnet.chain.robinhood.com" });
+    w = await makeWorld({ fork: FORK_RPC! });
   });
   after(async () => w?.stop());
 

@@ -40,7 +40,7 @@ export function Footer() {
         </div>
         <div className="footer__bottom">
           <p className="footer__risk">
-            Purser is software, not a bank. It never holds your funds and gives no advice. Use at your own risk.{" "}
+            Purser is software, not a bank. Your funds stay in your Safe; the only money Purser holds is model credit you prepay, and you can take back what is unused. No advice. Use at your own risk.{" "}
             <Link href="/own-risk" className="link">
               Read more
             </Link>

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { erc4626Abi } from "../../packages/sdk/src/abi.ts";
 import { listReceipts } from "../src/receipts.ts";
-import { createAccount, makeWorld, usdg, usdgBalance, type World } from "./harness.ts";
+import { FORK_RPC, createAccount, makeWorld, usdg, usdgBalance, type World } from "./harness.ts";
 import { api, type Api } from "./util-api.ts";
 
 async function setup(w: World) {
@@ -16,13 +16,13 @@ async function setup(w: World) {
 }
 
 for (const mode of ["local", "fork"] as const) {
-  describe(`agent treasury (14.1, ${mode})`, { skip: mode === "fork" && process.env.RPC_URL === "" }, () => {
+  describe(`agent treasury (14.1, ${mode})`, { skip: mode === "fork" && !FORK_RPC }, () => {
     let w: World;
     let e: Api;
     let safe: `0x${string}`;
     let key: string;
     before(async () => {
-      w = await makeWorld(mode === "fork" ? { fork: process.env.RPC_URL || "https://rpc.mainnet.chain.robinhood.com" } : {});
+      w = await makeWorld(mode === "fork" ? { fork: FORK_RPC! } : {});
       ({ e, safe, key } = await setup(w));
     });
     after(async () => w?.stop());

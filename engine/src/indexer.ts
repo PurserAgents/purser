@@ -355,7 +355,8 @@ export async function ingestReceipt(ctx: Ctx, r: TransactionReceipt) {
 /** Polls the node for Purser events since the last cursor, in 100,000-block spans. */
 export async function indexOnce(ctx: Ctx): Promise<number> {
   const dep = requireDep(ctx);
-  const head = await ctx.chain.pub.getBlockNumber();
+  // never the client's cached head (it keeps one for seconds): a block mined just now must be read now
+  const head = await ctx.chain.pub.getBlockNumber({ cacheTime: 0 });
   const cursor = kvGet(ctx.db, "index_cursor");
   const start = kvGet(ctx.db, "index_start") ?? (dep.startBlock !== undefined ? String(dep.startBlock) : head.toString());
   const from = cursor ? BigInt(cursor) + 1n : BigInt(start);

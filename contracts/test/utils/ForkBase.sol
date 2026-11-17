@@ -14,8 +14,8 @@ interface IERC20Like {
     function DOMAIN_SEPARATOR() external view returns (bytes32);
 }
 
-/// @notice Fork tests run against the live Robinhood Chain (4663). RPC_URL overrides the public node;
-///         RPC_URL="" skips every fork test cleanly.
+/// @notice Fork tests run against the live Robinhood Chain (4663) only when RPC_URL names a node, so the default
+///         run never depends on the network: RPC_URL=https://rpc.mainnet.chain.robinhood.com forge test runs them.
 abstract contract ForkBase is Base {
     address constant USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
     address constant WETH = 0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73;
@@ -30,7 +30,7 @@ abstract contract ForkBase is Base {
     bool internal forked;
 
     function _fork() internal returns (bool) {
-        string memory rpc = vm.envOr("RPC_URL", string("https://rpc.mainnet.chain.robinhood.com"));
+        string memory rpc = vm.envOr("RPC_URL", string(""));
         if (bytes(rpc).length == 0) {
             vm.skip(true);
             return false;

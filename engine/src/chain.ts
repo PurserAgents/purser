@@ -49,7 +49,7 @@ export interface GasStore {
 }
 
 /** The most gas one relayed transaction may use, by kind. A transaction whose estimate is above it is not sent. */
-export const GAS_LIMITS = { default: 2_000_000n, settlement: 250_000n, settlementWithSplits: 1_000_000n } as const;
+export const GAS_LIMITS = { default: 2_000_000n, settlement: 250_000n, settlementWithSplits: 1_000_000n, payout: 400_000n } as const;
 
 export class GasRefused extends Error {
   code = "gas_refused";

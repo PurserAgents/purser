@@ -7,7 +7,7 @@ import { erc20Abi } from "../../packages/sdk/src/abi.ts";
 import { purserPaywall } from "../../packages/sdk/src/merchant.ts";
 import { artifact } from "../src/deploy.ts";
 import { listReceipts } from "../src/receipts.ts";
-import { createAccount, makeWorld, randomAddress, usdg, usdgBalance, type World } from "./harness.ts";
+import { FORK_RPC, createAccount, makeWorld, randomAddress, usdg, usdgBalance, type World } from "./harness.ts";
 import { api, type Api } from "./util-api.ts";
 
 async function listen(app: Hono): Promise<{ url: string; server: ServerType }> {
@@ -164,10 +164,10 @@ describe("connector: one key for models, x402 services and on-chain apps (6.1-6.
   });
 });
 
-describe("connector: swaps through the chain's Uniswap V3 router (fork)", { skip: process.env.RPC_URL === "" }, () => {
+describe("connector: swaps through the chain's Uniswap V3 router (fork)", { skip: !FORK_RPC }, () => {
   let w: World;
   before(async () => {
-    w = await makeWorld({ fork: process.env.RPC_URL || "https://rpc.mainnet.chain.robinhood.com" });
+    w = await makeWorld({ fork: FORK_RPC! });
   });
   after(async () => w?.stop());
 

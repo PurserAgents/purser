@@ -304,6 +304,26 @@ const BATCH_ABI = parseAbi([
   "function multiSend(bytes transactions)",
 ]);
 
+/**
+ * Every dangerous selector anywhere in the call data, at any byte offset: a call nested in any wrapper, at any depth,
+ * still carries its four selector bytes somewhere in the data. (A chance match in random data is about one in two
+ * hundred million per kilobyte; it blocks a call, it never lets one through.)
+ */
+export function dangerousAnywhere(data: Hex | null | undefined): string[] {
+  if (!data) return [];
+  const hex = data.slice(2).toLowerCase();
+  const out: string[] = [];
+  for (const sel of Object.keys(DANGEROUS_SELECTORS)) {
+    const needle = sel.slice(2);
+    for (let i = hex.indexOf(needle); i !== -1; i = hex.indexOf(needle, i + 1))
+      if (i % 2 === 0) {
+        out.push(sel);
+        break;
+      }
+  }
+  return out;
+}
+
 /** The selectors inside call data, unwrapping the usual batch shapes (multicall, Multicall3, execute, Safe multiSend). */
 export function innerSelectors(data: Hex | null | undefined, depth = 0): string[] {
   if (!data || size(data) < 4) return [];
@@ -474,6 +494,7 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
   // the agent's own call data is always checked, with batches unwrapped: eth_simulateV1 reports only the outer call
   const selectors = new Set(sim.calls.map((c) => c.selector?.toLowerCase()).filter(Boolean) as string[]);
   for (const sel of innerSelectors(input.callData)) selectors.add(sel);
+  for (const sel of dangerousAnywhere(input.callData)) selectors.add(sel);
   let takeover = false;
   for (const sel of selectors) {
     if (DANGEROUS_SELECTORS[sel] && !takeover) {

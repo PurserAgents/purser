@@ -165,9 +165,11 @@ describe("feature routes: failure paths (local anvil)", () => {
       const res = await a.post(path, { upTo: 1, signature: "0x" });
       assert.equal(res.status, 400, `${path}: ${JSON.stringify(res.body)}`);
     }
-    const settle = await a.post("/v1/streams/999999/settle");
-    assert.equal(settle.status, 400, "the contract refuses an unknown stream, explained");
-    assert.equal(settle.body.error.code, "settle_refused");
+    // settling on demand needs a key (the relayer pays its gas), and the stream must exist
+    assert.equal((await a.post("/v1/streams/999999/settle")).status, 401);
+    const settle = await a.post("/v1/streams/999999/settle", {}, r.apiKey);
+    assert.equal(settle.status, 404, "an unknown stream, explained");
+    assert.equal(settle.body.error.code, "not_found");
   });
 
   it("x402 facilitator: bad bodies are 400; a payload that is not a payment is invalid, not an error", async () => {

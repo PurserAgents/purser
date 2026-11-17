@@ -54,7 +54,15 @@ export function ModelBudgets({ safe }: { safe: string }) {
       return "Model budgets saved.";
     }, "Sign in with your wallet...");
 
+  const withdraw = () =>
+    action.run(async () => {
+      const w = await withOwner(owner.signer, (token) => api<{ usd: string; status: string }>(`/v1/accounts/${safe}/model-credit/withdraw`, { method: "POST", token, body: {} }));
+      spend.reload();
+      return w.status === "paid" ? `$${Number(w.usd).toFixed(4)} of credit went back to the Safe.` : `$${Number(w.usd).toFixed(4)} of credit is on its way back to the Safe.`;
+    }, "Sign in with your wallet...");
+
   const today = (id: string) => spend.data?.today.find((x) => x.model === id);
+  const credit = Number(spend.data?.creditUsd ?? 0);
 
   return (
     <Card title="Models at cost" action={spend.data ? <span className="small muted">{Number(spend.data.owedUsd) > 0 ? `Unpaid $${Number(spend.data.owedUsd).toFixed(4)}` : `Credit $${Number(spend.data.creditUsd ?? 0).toFixed(4)}`}</span> : undefined}>
@@ -113,11 +121,16 @@ export function ModelBudgets({ safe }: { safe: string }) {
               </tbody>
             </table>
           </div>
-          <p className="small muted">The provider&apos;s own price, nothing added. When a model is over its budget, a request for a level moves on to the next model up.</p>
+          <p className="small muted">The provider&apos;s own price, nothing added. When a model is over its budget, a request for a level moves on to the next model up. Calls are paid from a prepaid credit; what is unused can go back to the Safe.</p>
           <div className="row">
             <button type="submit" className="btn btn--primary" disabled={action.busy}>
               Save budgets
             </button>
+            {credit > 0 ? (
+              <button type="button" className="btn btn--secondary" disabled={action.busy} onClick={withdraw}>
+                Withdraw ${credit.toFixed(4)} of credit
+              </button>
+            ) : null}
           </div>
           <ActionStatus state={action.state} />
         </form>

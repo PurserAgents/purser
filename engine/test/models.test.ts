@@ -119,9 +119,10 @@ describe("models at cost: provider price, paid from the agent's own account (pha
     assert.equal(two.body.purser.creditUsd, "0.000300");
     const three = await ask(e, key, "auto:fast"); // 0.000300 is less than the most the call can cost
     assert.equal(three.status, 200, JSON.stringify(three.body));
-    assert.equal(three.body.purser.topUp.usd, "0.001000");
-    assert.equal(three.body.purser.creditUsd, "0.000950");
-    assert.equal(await usdgBalance(w, company), before + 1000n);
+    // a second top-up within ten minutes is twice the last one, so calls that come fast need fewer payments
+    assert.equal(three.body.purser.topUp.usd, "0.002000");
+    assert.equal(three.body.purser.creditUsd, "0.001950");
+    assert.equal(await usdgBalance(w, company), before + 2000n);
     const rec = listReceipts(w.ctx, { safe, category: "model" }).items.find((x) => x.counterparty === company.toLowerCase());
     assert.ok(rec, "a model receipt for the top-up");
     assert.equal(rec!.service, CREDIT_SERVICE);

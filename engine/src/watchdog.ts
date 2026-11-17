@@ -9,6 +9,7 @@ import { body, safeOwner, safeParam, send } from "./api/http.ts";
 import { chainNow, requireDep, type Ctx } from "./ctx.ts";
 import { registerTask } from "./engine.ts";
 import { ingestReceipt } from "./indexer.ts";
+import { CREDIT_SERVICE } from "./models.ts";
 import { explainRevert } from "./chain.ts";
 import { fmt, id, lower, sameAddress, usd, ZERO } from "./util.ts";
 
@@ -25,6 +26,7 @@ export const WATCH = {
 };
 
 interface Row {
+  service: string | null;
   counterparty: string;
   amount: string;
   token: string;
@@ -34,7 +36,7 @@ interface Row {
 
 function outflows(ctx: Ctx, safe: string, since: number): Row[] {
   return ctx.db
-    .prepare("SELECT counterparty, amount, token, usd_micro, created_at FROM receipts WHERE safe = ? AND direction = 'out' AND status = 'executed' AND category NOT IN ('treasury','split') AND created_at >= ? ORDER BY created_at ASC")
+    .prepare("SELECT service, counterparty, amount, token, usd_micro, created_at FROM receipts WHERE safe = ? AND direction = 'out' AND status = 'executed' AND category NOT IN ('treasury','split') AND created_at >= ? ORDER BY created_at ASC")
     .all(lower(safe), since) as Row[];
 }
 
@@ -99,12 +101,16 @@ export async function inspect(ctx: Ctx, safe: Address, t?: number): Promise<Find
     if (hourUsd > limit && hourUsd >= WATCH.spikeMinUsdMicro && hourUsd > b.meanMicro * 3n)
       found.push({ kind: "spike", severity: "critical", title: "Spending spike", detail: `$${usd(hourUsd)} spent in the last hour. This agent usually spends about $${b.hourlyMeanUsd} an hour (give or take $${b.hourlyStdUsd}).`, freeze: true });
   }
+  // models at cost top-ups repeat by design (same payee, same amount when calls come fast): they count as spending
+  // for the spike rule, never as a burst or a loop
+  const payTo = process.env.PURSER_MODELS_PAYTO?.toLowerCase();
+  const habitual = hour.filter((r) => !(r.service === CREDIT_SERVICE && payTo && r.counterparty === payTo));
   // burst
-  const lastMinute = hour.filter((r) => r.created_at >= now_ - 60);
+  const lastMinute = habitual.filter((r) => r.created_at >= now_ - 60);
   if (lastMinute.length >= WATCH.burstCount)
     found.push({ kind: "burst", severity: "critical", title: "Payments in a burst", detail: `${lastMinute.length} payments in the last minute.`, freeze: true });
   // loop
-  const recent = hour.filter((r) => r.created_at >= now_ - 600);
+  const recent = habitual.filter((r) => r.created_at >= now_ - 600);
   const repeats = new Map<string, number>();
   for (const r of recent) repeats.set(`${r.counterparty}:${r.token}:${r.amount}`, (repeats.get(`${r.counterparty}:${r.token}:${r.amount}`) ?? 0) + 1);
   for (const [k, n] of repeats) {

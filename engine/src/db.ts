@@ -276,6 +276,8 @@ CREATE TABLE IF NOT EXISTS model_calls (
 
 CREATE TABLE IF NOT EXISTS model_credit (safe TEXT PRIMARY KEY, balance_micro INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS model_topups (intent_id TEXT PRIMARY KEY, safe TEXT NOT NULL, receipt_id TEXT, micro INTEGER NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS model_holds (id TEXT PRIMARY KEY, safe TEXT NOT NULL, model TEXT NOT NULL, task_id TEXT, micro INTEGER NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS model_withdrawals (id TEXT PRIMARY KEY, safe TEXT NOT NULL, micro INTEGER NOT NULL, status TEXT NOT NULL, tx_hash TEXT UNIQUE, created_at INTEGER NOT NULL, paid_at INTEGER);
 
 CREATE TABLE IF NOT EXISTS model_budgets (safe TEXT NOT NULL, model TEXT NOT NULL, daily_micro TEXT, per_task_micro TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY (safe, model));
 CREATE INDEX IF NOT EXISTS model_calls_safe ON model_calls (safe, provider, created_at);

@@ -16,6 +16,12 @@ process.env.PURSER_LOG = "0";
 // the tests run their stand-in services on this machine; the engine refuses private hosts unless told otherwise
 process.env.PURSER_FETCH_PRIVATE = "1";
 
+/**
+ * Fork tests read the live chain, so they run only when RPC_URL names a node: the default run never depends on the
+ * network. RPC_URL=https://rpc.mainnet.chain.robinhood.com npm test runs them too.
+ */
+export const FORK_RPC = process.env.RPC_URL || null;
+
 export async function freePort(): Promise<number> {
   return new Promise((res) => {
     const s = createServer();
@@ -33,31 +39,37 @@ export interface Anvil {
 }
 
 export async function startAnvil(opts: { fork?: string } = {}): Promise<Anvil> {
-  const port = await freePort();
-  const args = ["--port", String(port), "--chain-id", "4663", "--silent", "--hardfork", "osaka"];
-  if (opts.fork) args.push("--fork-url", opts.fork, "--no-storage-caching");
   const bin = resolve(process.env.HOME ?? "", ".foundry/bin/anvil");
-  const proc = spawn("nice", [bin, ...args], { stdio: "ignore" });
-  const url = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 100; i++) {
-    try {
-      const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }) });
-      if (r.ok) break;
-    } catch {
-      /* not up yet */
+  // a free port can be taken by another process before anvil binds it: try a fresh port if this one does not answer
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const port = await freePort();
+    const args = ["--port", String(port), "--chain-id", "4663", "--silent", "--hardfork", "osaka"];
+    if (opts.fork) args.push("--fork-url", opts.fork, "--no-storage-caching");
+    const proc = spawn("nice", [bin, ...args], { stdio: "ignore" });
+    const url = `http://127.0.0.1:${port}`;
+    let up = false;
+    for (let i = 0; i < 150 && proc.exitCode === null; i++) {
+      try {
+        const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }) });
+        if (r.ok && (await r.json()).result === "0x1237") {
+          up = true;
+          break;
+        }
+      } catch {
+        /* not up yet */
+      }
+      await new Promise((r) => setTimeout(r, 100));
     }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  return {
-    url,
-    proc,
-    stop: () =>
+    const stop = () =>
       new Promise<void>((res) => {
         if (proc.exitCode !== null) return res();
         proc.once("exit", () => res());
         proc.kill("SIGTERM");
-      }),
-  };
+      });
+    if (up) return { url, proc, stop };
+    await stop();
+  }
+  throw new Error("anvil did not start (five ports tried)");
 }
 
 export interface World {
@@ -187,13 +199,23 @@ export function makeOfflineEngine(over: Partial<Parameters<typeof loadConfig>[1]
 
 /**
  * Purser Shield counts a report for others only from an independent account in good standing. This gives an account
- * that standing in the test database: $25 paid out (a real payment), backdated eight days, and its own owner.
+ * that standing in the test database: $25 paid out to three payees, $5 of it as prepaid model credit (money it cannot
+ * take back), all backdated 31 days, and its own owner.
  */
 export async function giveStanding(w: World, safe: Address, owner: Address = randomAddress()) {
   const { submitIntent } = await import("../src/intents.ts");
-  const r = await submitIntent(w.ctx, { safe, spec: { kind: "pay", pay: { token: w.dep.usdg, to: randomAddress(), amount: usdg(25) } }, category: "transfer", signer: w.agent });
-  if (r.intent.status !== "executed") throw new Error(`standing payment: ${r.intent.status} ${r.intent.error ?? ""}`);
-  w.ctx.db.prepare("UPDATE receipts SET created_at = created_at - 8 * 86400 WHERE safe = ?").run(safe.toLowerCase());
+  const { CREDIT_SERVICE } = await import("../src/models.ts");
+  process.env.PURSER_MODELS_PAYTO ??= "0x00000000000000000000000000000000000c0de5";
+  const pays: [Address, bigint, string?][] = [
+    [randomAddress(), usdg(10)],
+    [randomAddress(), usdg(10)],
+    [process.env.PURSER_MODELS_PAYTO as Address, usdg(5), CREDIT_SERVICE],
+  ];
+  for (const [to, amount, service] of pays) {
+    const r = await submitIntent(w.ctx, { safe, spec: { kind: "pay", pay: { token: w.dep.usdg, to, amount, service } }, category: "transfer", signer: w.agent });
+    if (r.intent.status !== "executed") throw new Error(`standing payment: ${r.intent.status} ${r.intent.error ?? ""}`);
+  }
+  w.ctx.db.prepare("UPDATE receipts SET created_at = created_at - 31 * 86400 WHERE safe = ?").run(safe.toLowerCase());
   w.ctx.db.prepare("UPDATE accounts SET owners = ? WHERE safe = ?").run(JSON.stringify([owner.toLowerCase()]), safe.toLowerCase());
   w.ctx.db.prepare("DELETE FROM kv WHERE key = ?").run(`owners_seen:${safe.toLowerCase()}`);
 }

@@ -1,4 +1,4 @@
-import { keccak256, pad, toEventSelector, type Address, type Hex, type Log } from "viem";
+import { keccak256, pad, toEventSelector, toHex, type Address, type Hex, type Log } from "viem";
 import { safeAbi } from "../../packages/sdk/src/abi.ts";
 import { chainAddresses } from "../../packages/sdk/src/chain.ts";
 import type { Ctx } from "./ctx.ts";
@@ -79,14 +79,45 @@ export interface PaymentClaim {
   amount: bigint;
 }
 
+const ETH_PSEUDO = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+
+/**
+ * The ETH this one transaction moved, from replaying its block up to and including it (eth_simulateV1 on the state
+ * before the block, with ETH transfers traced). This sees inside the transaction: a Safe pointed at other code and
+ * back around it moves nothing in the replay, whatever else happened in the block. null when the node cannot replay.
+ */
+async function ethMovedBy(ctx: Ctx, receipt: { blockNumber: bigint; transactionIndex?: number }): Promise<{ from: string; to: string; value: bigint }[] | null> {
+  if (receipt.transactionIndex === undefined) return null;
+  try {
+    const block = await ctx.chain.pub.getBlock({ blockNumber: receipt.blockNumber, includeTransactions: true });
+    const txs = block.transactions.slice(0, receipt.transactionIndex + 1);
+    if (txs.length !== receipt.transactionIndex + 1 || typeof txs[0] === "string") return null;
+    const calls = txs.map((t) => ({ from: t.from, ...(t.to ? { to: t.to } : {}), data: t.input, value: toHex(t.value), gas: toHex(t.gas) }));
+    const res = (await ctx.chain.pub.request({
+      method: "eth_simulateV1" as never,
+      params: [{ blockStateCalls: [{ calls, blockOverrides: { time: toHex(block.timestamp) } }], traceTransfers: true, validation: false }, toHex(receipt.blockNumber - 1n)] as never,
+    })) as { calls: { status: Hex; logs?: { address: string; topics: Hex[]; data: Hex }[] }[] }[];
+    const ours = res[0]?.calls?.[txs.length - 1];
+    if (!ours) return null;
+    if (ours.status !== "0x1") return [];
+    return (ours.logs ?? [])
+      .filter((l) => lower(l.address) === ETH_PSEUDO && l.topics[0]?.toLowerCase() === TRANSFER_TOPIC && l.topics.length === 3)
+      .map((l) => ({ from: lower(`0x${l.topics[1].slice(-40)}`), to: lower(`0x${l.topics[2].slice(-40)}`), value: BigInt(l.data) }));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Checks payments against one transaction's receipt. ERC-20: the token's own Transfer log from the payer to the
- * payee for exactly the amount; each Transfer log proves one payment only. ETH (no log): across the block, the payee's
- * balance grew and the payer's fell by at least the ETH claimed between them in this transaction, so money from
- * someone else in the same block cannot stand in for it. If the node no longer has the state of the block before,
- * the payer must still be a real Safe (checked fresh) that reported a module execution in the transaction.
+ * payee for exactly the amount; each Transfer log proves one payment only. ETH (no log): the transaction is replayed
+ * on its block and must move the ETH from the payer to the payee itself. Where the node cannot replay: across the
+ * block, the payee's balance grew and the payer's fell by at least the ETH claimed between them; and where it no longer
+ * has the state of the block before, the payer must still be a real Safe (checked fresh) that reported a module
+ * execution in the transaction.
  */
-export function txProof(ctx: Ctx, receipt: { logs: readonly Log[]; blockNumber: bigint }) {
+export function txProof(ctx: Ctx, receipt: { logs: readonly Log[]; blockNumber: bigint; transactionIndex?: number }) {
+  let replay: Promise<{ from: string; to: string; value: bigint }[] | null> | null = null;
   const used = new Set<number>();
   const ethClaimed = new Map<string, bigint>();
   const ethSent = new Map<string, bigint>();
@@ -105,6 +136,17 @@ export function txProof(ctx: Ctx, receipt: { logs: readonly Log[]; blockNumber: 
         const from = lower(c.payer);
         const want = (ethClaimed.get(to) ?? 0n) + c.amount;
         const sent = (ethSent.get(from) ?? 0n) + c.amount;
+        replay ??= ethMovedBy(ctx, receipt);
+        const traced = await replay;
+        if (traced) {
+          const between = traced.filter((t) => t.from === from && t.to === to).reduce((n, t) => n + t.value, 0n);
+          const ok = between >= want;
+          if (ok) {
+            ethClaimed.set(to, want);
+            ethSent.set(from, sent);
+          }
+          return ok;
+        }
         let moved: { grew: bigint; fell: bigint } | null = null;
         try {
           const [g, f] = await Promise.all([delta(to), delta(from)]);
@@ -143,7 +185,7 @@ export function txProof(ctx: Ctx, receipt: { logs: readonly Log[]; blockNumber: 
 }
 
 /** One payment, one transaction: fetches the receipt when only the hash is known. */
-export async function paymentProven(ctx: Ctx, tx: Hex | { logs: readonly Log[]; blockNumber: bigint }, c: PaymentClaim): Promise<boolean> {
+export async function paymentProven(ctx: Ctx, tx: Hex | { logs: readonly Log[]; blockNumber: bigint; transactionIndex?: number }, c: PaymentClaim): Promise<boolean> {
   const r = typeof tx === "string" ? await ctx.chain.pub.getTransactionReceipt({ hash: tx }) : tx;
   return txProof(ctx, r).proves(c);
 }

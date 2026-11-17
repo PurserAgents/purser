@@ -87,7 +87,9 @@ Research done in good faith and within these rules is welcome, and we will not t
 ## How Purser is built to stay safe
 
 - **Non-custodial.** Money stays in the owner's own Safe. The only Purser contract that ever holds tokens is
-  `PurserEscrow`, and only for one open job.
+  `PurserEscrow`, and only for one open job. The only money Purser itself holds is prepaid credit for models at
+  cost, at its models address and kept per account; the owner can withdraw what is unused back to the Safe at any
+  time (`POST /v1/accounts/:safe/model-credit/withdraw`).
 - **The contract is the authority.** Budgets, allowlists, approvals, co-sign and freeze are enforced on chain, so
   the engine can be replaced or bypassed without weakening them.
 - **The agent path is narrow.** No delegatecall, no calls to the Safe or the module, no direct `approve`,
