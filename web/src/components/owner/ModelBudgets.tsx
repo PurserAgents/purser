@@ -17,12 +17,13 @@ interface Budget {
 interface Spend {
   today: { model: string; calls: number; usd: string }[];
   owedUsd: string;
+  creditUsd?: string;
 }
 
 const clean = (v: string | null) => (v === null ? "" : String(Number(v)));
 const toNumber = (v: string) => (v.trim() === "" ? null : Number(v));
 
-/** Models at cost for one agent: today's spend per model, what is still unpaid, and the owner's budgets. */
+/** Models at cost for one agent: today's spend per model, the prepaid credit left, and the owner's budgets. */
 export function ModelBudgets({ safe }: { safe: string }) {
   const owner = useOwner();
   const budgets = useEngine<{ items: Budget[] }>(`/v1/accounts/${safe}/model-budgets`);
@@ -56,7 +57,7 @@ export function ModelBudgets({ safe }: { safe: string }) {
   const today = (id: string) => spend.data?.today.find((x) => x.model === id);
 
   return (
-    <Card title="Models at cost" action={spend.data ? <span className="small muted">Unpaid ${Number(spend.data.owedUsd).toFixed(4)}</span> : undefined}>
+    <Card title="Models at cost" action={spend.data ? <span className="small muted">{Number(spend.data.owedUsd) > 0 ? `Unpaid $${Number(spend.data.owedUsd).toFixed(4)}` : `Credit $${Number(spend.data.creditUsd ?? 0).toFixed(4)}`}</span> : undefined}>
       {!budgets.data || !spend.data ? (
         <Loading />
       ) : (

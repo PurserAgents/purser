@@ -21,19 +21,27 @@ import { react } from "./watchdog.ts";
 // Poisoning guard: an attacker could plant a well-known service's address in a page to get it flagged. So:
 // - only a block on a real account, signed by its own agent key, reports anything (never a request that fails as
 //   "not an account" or "wrong agent key");
-// - an entry protects only the account that reported it until several accounts with a payment record reported it;
-//   then it protects every account. Entries not seen again for a while stop counting, and an owner can take back
+// - an entry protects only the account that reported it until enough independent accounts in good standing reported
+//   it; then it protects every account. Good standing: at least $25 paid out in listed tokens, the first of those
+//   payments at least 7 days old. Independent: accounts that share an owner (any owner they were ever seen with) or
+//   paid each other are one group, and each group counts once. A reporter that itself paid or was paid by the
+//   address does not count for it. Entries not seen again for a while stop counting, and an owner can take back
 //   their account's report;
 // - an address is never flagged when it is a Purser contract or account, on the reporting account's own list, or
-//   already paid by several accounts. An owner who put a flagged address on their own list gets a warning instead.
+//   paid at least $1 each by enough independent accounts in good standing. One owner's accounts are one group, so
+//   an owner cannot vouch for its own counterparties. An owner who put a flagged address on their own list gets a
+//   warning instead.
 //
 // Each account chooses what a match does: "block" (the default) refuses the payment; "warn" holds it until the owner
 // releases or rejects it. Scheduled payouts never wait: a match always stops them, and accounts with a subscription or
 // stream to a newly flagged payee are told (never frozen because of a list entry).
 
 export const SHIELD = {
-  trustedPayers: 3, // an address that this many accounts already paid successfully is never flagged
-  reportersForAll: 3, // an entry protects every account once this many accounts with a payment record reported it
+  trustedPayers: 3, // an address this many independent accounts in good standing paid is never flagged
+  trustedPaidUsdMicro: 1_000_000n, // each of them paid it at least $1
+  reportersForAll: 3, // an entry protects every account once this many independent accounts in good standing reported it
+  standingUsdMicro: 25_000_000n, // good standing: at least $25 paid out in listed tokens
+  standingAgeDays: 7, // and the first of those payments at least this old
   ttlDays: 30, // an entry no account reported for this long stops counting
   minSentence: 24, // shorter sentences are too generic to fingerprint
 };
@@ -114,27 +122,75 @@ export function trusted(ctx: Ctx, address: string): boolean {
   const dep = ctx.dep;
   if (dep && [dep.module, dep.factory, dep.recurring, dep.escrow, dep.passkey, dep.feeRecipient, dep.usdg, dep.weth].some((x) => x && sameAddress(x, a))) return true;
   if (ctx.db.prepare("SELECT 1 FROM accounts WHERE safe = ? LIMIT 1").get(a)) return true;
-  const payers = ctx.db.prepare("SELECT COUNT(DISTINCT r.safe) AS n FROM receipts r JOIN accounts a ON a.safe = r.safe WHERE r.counterparty = ? AND r.direction = 'out' AND r.status = 'executed'").get(a) as { n: number };
-  return payers.n >= SHIELD.trustedPayers;
+  const payers = (
+    ctx.db
+      .prepare(
+        `SELECT r.safe FROM receipts r JOIN accounts a ON a.safe = r.safe WHERE r.counterparty = ? AND r.direction = 'out' AND r.status = 'executed'
+         GROUP BY r.safe HAVING SUM(CAST(r.usd_micro AS INTEGER)) >= ?`,
+      )
+      .all(a, SHIELD.trustedPaidUsdMicro) as { safe: string }[]
+  )
+    .map((r) => r.safe)
+    .filter((s) => inStanding(ctx, s));
+  return groups(ctx, payers) >= SHIELD.trustedPayers;
+}
+
+/** Good standing: at least $25 paid out in listed tokens, the first of those payments at least 7 days old. */
+export function inStanding(ctx: Ctx, safe: string): boolean {
+  const r = ctx.db
+    .prepare("SELECT COALESCE(SUM(CAST(usd_micro AS INTEGER)), 0) AS paid, MIN(created_at) AS first FROM receipts WHERE safe = ? AND direction = 'out' AND status = 'executed' AND CAST(usd_micro AS INTEGER) > 0")
+    .get(lower(safe)) as { paid: number; first: number | null };
+  return BigInt(r.paid) >= SHIELD.standingUsdMicro && r.first !== null && r.first <= Math.floor(Date.now() / 1000) - SHIELD.standingAgeDays * 86400;
+}
+
+/** Every owner an account was ever seen with: its row and what the indexer remembered. */
+function ownersOf(ctx: Ctx, safe: string): string[] {
+  const row = ctx.db.prepare("SELECT owners FROM accounts WHERE safe = ?").get(lower(safe)) as { owners: string } | undefined;
+  const seen = ctx.db.prepare("SELECT value FROM kv WHERE key = ?").get(`owners_seen:${lower(safe)}`) as { value: string } | undefined;
+  return [...new Set([...(JSON.parse(row?.owners ?? "[]") as string[]), ...(JSON.parse(seen?.value ?? "[]") as string[])].map((o) => o.toLowerCase()))];
+}
+
+/**
+ * How many independent groups these accounts form. Accounts that share an owner, or paid each other, are one group:
+ * one owner's many accounts, or accounts funded from one another, count once.
+ */
+export function groups(ctx: Ctx, safes: string[]): number {
+  const list = [...new Set(safes.map(lower))];
+  const parent = list.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const owners = list.map((s) => new Set(ownersOf(ctx, s)));
+  const linked = (x: string, y: string) => !!ctx.db.prepare("SELECT 1 FROM receipts WHERE (safe = ? AND counterparty = ?) OR (safe = ? AND counterparty = ?) LIMIT 1").get(x, y, y, x);
+  for (let i = 0; i < list.length; i++)
+    for (let j = i + 1; j < list.length; j++)
+      if ([...owners[i]].some((o) => owners[j].has(o)) || linked(list[i], list[j])) parent[find(i)] = find(j);
+  return new Set(list.map((_, i) => find(i))).size;
 }
 
 const freshSince = () => Math.floor(Date.now() / 1000) - SHIELD.ttlDays * 86400;
 
-/** Accounts that reported an item and have a payment record of their own. */
+/**
+ * Accounts whose report of an item counts for others: in good standing, and never paid by or paying the address
+ * themselves (an owner cannot list its own counterparty, or a wallet it funded).
+ */
 export function reporters(ctx: Ctx, item: string): string[] {
   return (
     ctx.db
       .prepare(
         `SELECT DISTINCT h.safe FROM shield_hits h JOIN accounts a ON a.safe = h.safe
-         WHERE h.item = ? AND h.created_at >= ? AND EXISTS (SELECT 1 FROM receipts r WHERE r.safe = h.safe AND r.direction = 'out' AND r.status = 'executed')`,
+         WHERE h.item = ? AND h.created_at >= ? AND NOT EXISTS (SELECT 1 FROM receipts r WHERE r.safe = h.safe AND r.counterparty = h.item)`,
       )
       .all(item, freshSince()) as { safe: string }[]
-  ).map((r) => r.safe);
+  )
+    .map((r) => r.safe)
+    .filter((s) => inStanding(ctx, s));
 }
+
+/** Independent groups of reporters: what decides whether an entry protects every account. */
+export const reporterGroups = (ctx: Ctx, item: string) => groups(ctx, reporters(ctx, item));
 
 /** Does this entry count for every account (null: the public view) or for this one account? */
 function counts(ctx: Ctx, item: string, safe: string | null): boolean {
-  if (reporters(ctx, item).length >= SHIELD.reportersForAll) return true;
+  if (reporterGroups(ctx, item) >= SHIELD.reportersForAll) return true;
   return !!safe && !!ctx.db.prepare("SELECT 1 FROM shield_hits WHERE item = ? AND safe = ? AND created_at >= ? LIMIT 1").get(item, lower(safe), freshSince());
 }
 
@@ -275,7 +331,7 @@ function caughtWhere(ctx: Ctx, item: string, hits: number, safe: string): string
   const others = othersFor(ctx, item, safe);
   const attacks = hits === 1 ? "one attack" : `${hits} attacks`;
   if (others === 0) return `This account's own firewall caught it in an earlier attack; it stays refused.`;
-  return `It was caught in ${attacks} aimed at ${others === 1 ? "another account" : `${others} other accounts`}. Once 3 accounts with a payment record report an attacker, every account refuses it.`;
+  return `It was caught in ${attacks} aimed at ${others === 1 ? "another account" : `${others} other accounts`}. Once 3 independent accounts with a payment history report an attacker, every account refuses it.`;
 }
 
 function accountsAimedAt(ctx: Ctx, item: string): number {
@@ -327,7 +383,7 @@ function forAll(ctx: Ctx, which: "threats" | "prints"): (ThreatRow | PrintRow)[]
     which === "threats"
       ? (ctx.db.prepare("SELECT address, kind, hits, first_seen, last_seen FROM shield_threats WHERE active = 1 AND last_seen >= ? ORDER BY last_seen DESC").all(freshSince()) as ThreatRow[])
       : (ctx.db.prepare("SELECT print, why, hits, first_seen, last_seen FROM shield_prints WHERE active = 1 AND last_seen >= ? ORDER BY last_seen DESC").all(freshSince()) as PrintRow[]);
-  return rows.filter((r) => reporters(ctx, "address" in r ? r.address : r.print).length >= SHIELD.reportersForAll);
+  return rows.filter((r) => reporterGroups(ctx, "address" in r ? r.address : r.print) >= SHIELD.reportersForAll);
 }
 
 export function shieldFeed(ctx: Ctx, limit = 50) {

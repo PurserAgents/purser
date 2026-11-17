@@ -234,7 +234,7 @@ async function sendCreate(ctx: Ctx, iid: string, op: Op, data: Hex, verdict: Pay
   const dep = requireDep(ctx);
   if (!ctx.chain.broadcast) return { intent: setIntent(ctx, iid, { status: "ready" })!, verdict, receipt: null };
   try {
-    const r = await ctx.chain.send(ctx.chain.accounts.relayer!, { to: dep.recurring, data });
+    const r = await ctx.chain.send(ctx.chain.accounts.relayer!, { to: dep.recurring, data, account: getIntentRow(ctx, iid)?.safe });
     if (r.status !== "success") throw new Error("reverted");
     setIntent(ctx, iid, { tx_hash: lower(r.transactionHash) });
     tagTx(ctx, r.transactionHash, op.kind);

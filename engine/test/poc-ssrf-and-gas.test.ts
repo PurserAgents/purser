@@ -16,9 +16,9 @@ import { api, type Api } from "./util-api.ts";
 
 describe("the guarded fetch", () => {
   it("knows which addresses are not on the public internet", () => {
-    for (const a of ["127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "::1", "::", "fe80::1", "fd12:3456::1", "::ffff:127.0.0.1", "::ffff:7f00:1", "64:ff9b::a9fe:a9fe", "224.0.0.1"])
+    for (const a of ["127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "::1", "::", "fe80::1", "fd12:3456::1", "::ffff:127.0.0.1", "::ffff:7f00:1", "64:ff9b::a9fe:a9fe", "224.0.0.1", "::7f00:1", "::a9fe:a9fe", "64:ff9b:1::808:808", "2002:7f00:1::1", "2002:a00:1::", "2001:0:4136:e378:8000:63bf:3fff:fdd2", "not-an-address"])
       assert.equal(isPrivateAddress(a), true, a);
-    for (const a of ["1.1.1.1", "8.8.8.8", "104.16.0.1", "2606:4700::1111", "2001:4860:4860::8888"]) assert.equal(isPrivateAddress(a), false, a);
+    for (const a of ["1.1.1.1", "8.8.8.8", "104.16.0.1", "2606:4700::1111", "2001:4860:4860::8888", "64:ff9b::808:808", "2002:808:808::1"]) assert.equal(isPrivateAddress(a), false, a);
   });
 
   it("refuses plain http, credentials, private literals and internal names before anything is sent", () => {
@@ -136,8 +136,9 @@ describe("GHSA-3h6j-gjj9-vwcm and GHSA-mwgj-gf6x-gm67", () => {
     assert.equal(await w.ctx.chain.pub.getTransactionCount({ address: relayer.address }), nonceBefore);
   });
 
-  it("the day's gas count survives a restart, and open settlements only get their share", async () => {
+  it("the day's gas count survives a restart; open settlements and each account only get their share", async () => {
     const saved = { enforce: process.env.PURSER_GAS_ENFORCE, cap: process.env.PURSER_GAS_DAY_WEI, pct: process.env.PURSER_GAS_OPEN_PCT };
+    delete process.env.PURSER_GAS_ACCOUNT_PCT; // the default share
     process.env.PURSER_GAS_ENFORCE = "1";
     process.env.PURSER_GAS_DAY_WEI = "1000000000000000"; // 0.001 ETH
     process.env.PURSER_GAS_OPEN_PCT = "30";
@@ -155,6 +156,11 @@ describe("GHSA-3h6j-gjj9-vwcm and GHSA-mwgj-gf6x-gm67", () => {
       kv.set(`gas_spent:${day}:${relayer.address.toLowerCase()}:open`, "300000000000000");
       await assert.rejects(c2.send(relayer, { to: randomAddress(), value: 1n, open: true }), /gas share for today is used up/);
       await c2.send(relayer, { to: randomAddress(), value: 1n }); // accounts' own payments still go
+      // one account's own payments and calls get only their share (10% by default), the others keep going
+      const busy = randomAddress();
+      kv.set(`gas_spent:${day}:${relayer.address.toLowerCase()}:acct:${busy.toLowerCase()}`, "100000000000000");
+      await assert.rejects(c2.send(relayer, { to: randomAddress(), value: 1n, account: busy }), /this account's share of the engine's gas/);
+      await c2.send(relayer, { to: randomAddress(), value: 1n, account: randomAddress() });
       kv.set(`gas_spent:${day}:${relayer.address.toLowerCase()}`, "1000000000000000");
       await assert.rejects(c2.send(relayer, { to: randomAddress(), value: 1n }), /gas budget for today is used up/);
     } finally {

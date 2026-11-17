@@ -26,7 +26,7 @@ const kindLabel: Record<ShieldThreat["kind"], string> = {
 const steps = [
   { n: "01", title: "One firewall catches an attack", text: "An agent reads a page with a hidden instruction, or is asked to pay a wallet that forwards everything away. Its firewall simulates the payment and refuses it before anything is signed." },
   { n: "02", title: "The attacker goes on the list", text: "The attacker's side of that attack is recorded in the same second: the address, the contract behind it and a fingerprint of the injected sentence. The account that caught it refuses it from then on." },
-  { n: "03", title: "Three reports, every account", text: "Once 3 accounts with a payment record report the same attacker, it goes on the shared list. Every account's firewall then checks the payee, every recipient and every spender against it before it signs." },
+  { n: "03", title: "Three reports, every account", text: "Once 3 independent accounts with a payment history report the same attacker, it goes on the shared list. Every account's firewall then checks the payee, every recipient and every spender against it before it signs." },
 ];
 
 const shared = [
@@ -55,7 +55,7 @@ export default async function ShieldPage() {
             Three agents attacked, <span className="serif">every agent protected.</span>
           </>
         }
-        lead="Every wallet fights alone. On Purser, an attack the firewall blocks is refused at once by the account that caught it. Once 3 accounts with a payment record report the same attacker, every account refuses it."
+        lead="Every wallet fights alone. On Purser, an attack the firewall blocks is refused at once by the account that caught it. Once 3 independent accounts with a payment history report the same attacker, every account refuses it."
       />
       <div className="container page-body">
         <div className="dash">
@@ -143,7 +143,7 @@ export default async function ShieldPage() {
 
           <Card title="The list, live" action={s?.lastFlaggedAt ? <span className="small dim">Last added {formatTime(s.lastFlaggedAt)} UTC</span> : null} flush>
             {empty ? (
-              <EmptyState icon={IconShield} title="Nothing on the list yet" text="When 3 Purser accounts with a payment record have caught the same attacker, its address and a fingerprint of the injected instruction appear here, with how many accounts it was aimed at." />
+              <EmptyState icon={IconShield} title="Nothing on the list yet" text="When 3 Purser independent accounts with a payment history have caught the same attacker, its address and a fingerprint of the injected instruction appear here, with how many accounts it was aimed at." />
             ) : (
               <div className="rows">
                 {shield!.threats.map((t) => (

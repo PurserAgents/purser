@@ -6,7 +6,7 @@
 // answers at all, nothing is signed or sent.
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { createWalletClient, encodeDeployData, encodeFunctionData, http, parseAbi, type Address } from "viem";
+import { createWalletClient, encodeDeployData, encodeFunctionData, http, keccak256, parseAbi, toHex, type Address, type Hex } from "viem";
 import { execAsTestOwner, prepareSafeTx, ruleChangeCalls } from "../src/accounts.ts";
 import { artifact } from "../src/deploy.ts";
 import { forceBackend } from "../src/firewall.ts";
@@ -59,6 +59,69 @@ describe("GHSA-gx7f-32pr-9pmr: the takeover-call check works with every simulati
       assert.equal((await ownerOf()).toLowerCase(), safe.toLowerCase(), "the Safe still owns its contract");
     });
   }
+
+  describe("variants: a takeover inside a batch, or one no decoder can see, is caught by what the simulation shows", () => {
+    let multi: Address;
+    let roles: Address;
+    let factory: Address;
+    const multiAbi = () => artifact("TakeoverHelpers.sol", "OwnedMulti").abi;
+    const deploy = async (name: string, args: unknown[] = []) => {
+      const a = artifact("TakeoverHelpers.sol", name);
+      const relayer = w.ctx.chain.accounts.relayer!;
+      const hash = await w.ctx.chain.wallet(relayer).sendTransaction({ account: relayer, chain: w.ctx.chain.chain, data: encodeDeployData({ abi: a.abi, bytecode: a.bytecode, args }) });
+      return (await w.ctx.chain.pub.waitForTransactionReceipt({ hash, pollingInterval: 50 })).contractAddress!;
+    };
+    const callOn = (target: Address, data: Hex) =>
+      submitIntent(w.ctx, { safe, spec: { kind: "call", call: { target, value: 0n, data, spendToken: ZERO, spendLimit: 0n } }, category: "onchain", signer: w.agent });
+    const owned = (a: Address) => w.ctx.chain.pub.readContract({ address: a, abi: ownedAbi, functionName: "owner" });
+
+    before(async () => {
+      multi = await deploy("OwnedMulti", [safe]);
+      roles = await deploy("RoleThing", [safe]);
+      factory = await deploy("OwnedFactory");
+      const r = await execAsTestOwner(w.ctx, await prepareSafeTx(w.ctx, safe, ruleChangeCalls(w.ctx, { allow: [multi, roles, factory] }), "allow the helpers"));
+      await ingestReceipt(w.ctx, r);
+      await indexOnce(w.ctx);
+    });
+
+    for (const backend of ["eth_simulateV1", "debug_traceCall"] as const) {
+      it(`${backend}: transferOwnership wrapped in the target's own multicall is blocked`, async () => {
+        forceBackend(backend);
+        const inner = encodeFunctionData({ abi: ownedAbi, functionName: "transferOwnership", args: [attacker] });
+        const r = await callOn(multi, encodeFunctionData({ abi: multiAbi(), functionName: "multicall", args: [[inner]] }));
+        assert.equal(r.intent.status, "blocked", JSON.stringify(r.verdict.reasons));
+        assert.ok(r.verdict.reasons.some((x) => x.code === "dangerous_call"));
+        assert.equal((await owned(multi)).toLowerCase(), safe.toLowerCase());
+      });
+
+      it(`${backend}: a wrapper no decoder knows is caught by the OwnershipTransferred log`, async () => {
+        forceBackend(backend);
+        const inner = encodeFunctionData({ abi: ownedAbi, functionName: "transferOwnership", args: [attacker] });
+        const r = await callOn(multi, encodeFunctionData({ abi: multiAbi(), functionName: "poke", args: [7, inner] }));
+        assert.equal(r.intent.status, "blocked", JSON.stringify(r.verdict.reasons));
+        const reason = r.verdict.reasons.find((x) => x.code === "dangerous_call");
+        // eth_simulateV1 shows only the outer call, so the log decides; the call tracer also sees the inner call
+        assert.match(reason!.detail, backend === "eth_simulateV1" ? /a change of owner/ : /transferOwnership|a change of owner/);
+        assert.equal((await owned(multi)).toLowerCase(), safe.toLowerCase());
+      });
+
+      it(`${backend}: granting the admin role is blocked, an ordinary role is not`, async () => {
+        forceBackend(backend);
+        const grant = (role: Hex) => callOn(roles, encodeFunctionData({ abi: artifact("TakeoverHelpers.sol", "RoleThing").abi, functionName: "grantRole", args: [role, attacker] }));
+        const admin = await grant(`0x${"0".repeat(64)}`);
+        assert.equal(admin.intent.status, "blocked");
+        assert.ok(admin.verdict.reasons.some((x) => x.code === "dangerous_call" && /admin role/.test(x.detail)));
+        const reader = await grant(keccak256(toHex("READER_ROLE")));
+        assert.equal(reader.verdict.reasons.some((x) => x.code === "dangerous_call"), false);
+      });
+
+      it(`${backend}: deploying a new contract the Safe owns is not a takeover`, async () => {
+        forceBackend(backend);
+        const r = await callOn(factory, encodeFunctionData({ abi: artifact("TakeoverHelpers.sol", "OwnedFactory").abi, functionName: "make" }));
+        assert.equal(r.verdict.reasons.some((x) => x.code === "dangerous_call"), false, JSON.stringify(r.verdict.reasons));
+      });
+    }
+  });
 
   it("no simulation backend: blocked, never signed or sent", async () => {
     forceBackend(null);

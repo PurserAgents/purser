@@ -7,7 +7,7 @@ import { chargeSubscriptions } from "../src/recurring.ts";
 import { listWatchEvents } from "../src/watchdog.ts";
 import { readChainAccount } from "../src/accounts.ts";
 import { SHIELD, sentencePrints, shieldStats } from "../src/shield.ts";
-import { createAccount, makeWorld, randomAddress, usdg, usdgBalance, type World } from "./harness.ts";
+import { createAccount, giveStanding, makeWorld, randomAddress, usdg, usdgBalance, type World } from "./harness.ts";
 import { api, type Api } from "./util-api.ts";
 
 const planted = (payee: string) =>
@@ -38,8 +38,8 @@ describe("Purser Shield: accounts attacked, every account protected (local)", ()
     for (let i = 0; i < SHIELD.reportersForAll; i++) reporters.push(await createAccount(w, { name: `Agent A${i}` }));
     a = reporters[0];
     b = await createAccount(w, { name: "Agent B" });
-    // a report counts for every account only from accounts with a payment record
-    for (const r of reporters) assert.equal((await pay(r, randomAddress(), usdg(1), "Pay the data vendor.")).intent.status, "executed");
+    // a report counts for every account only from independent accounts in good standing
+    for (const r of reporters) await giveStanding(w, r);
   });
   after(async () => w?.stop());
 

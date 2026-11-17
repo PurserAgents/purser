@@ -3,7 +3,7 @@ import { after, before, describe, it } from "node:test";
 import { serve, type ServerType } from "@hono/node-server";
 import { Hono } from "hono";
 import type { Address } from "viem";
-import { costMicro, MODELS, toAnthropic } from "../src/models.ts";
+import { costMicro, creditMicro, CREDIT_SERVICE, MODELS, toAnthropic } from "../src/models.ts";
 import { listReceipts } from "../src/receipts.ts";
 import { createAccount, defaultRule, makeWorld, randomAddress, usdg, usdgBalance, type World } from "./harness.ts";
 import { api, type Api } from "./util-api.ts";
@@ -64,12 +64,12 @@ describe("models at cost: provider price, paid from the agent's own account (pha
     process.env.PURSER_MODELS_URL = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     process.env.PURSER_MODELS_KEY = "sk-ant-test";
     process.env.PURSER_MODELS_PAYTO = company;
-    process.env.PURSER_MODELS_SETTLE_MICRO = "1000"; // $0.001, so the tests settle after a few calls
+    process.env.PURSER_MODELS_TOPUP_MICRO = "1000"; // $0.001, so the tests top up after a few calls
     safe = await createAccount(w, { name: "Model agent" });
     key = await keyFor(e, owner, safe);
   });
   after(async () => {
-    for (const k of ["PURSER_MODELS_URL", "PURSER_MODELS_KEY", "PURSER_MODELS_PAYTO", "PURSER_MODELS_SETTLE_MICRO"]) delete process.env[k];
+    for (const k of ["PURSER_MODELS_URL", "PURSER_MODELS_KEY", "PURSER_MODELS_PAYTO", "PURSER_MODELS_TOPUP_MICRO"]) delete process.env[k];
     server?.close();
     await w?.stop();
   });
@@ -93,7 +93,8 @@ describe("models at cost: provider price, paid from the agent's own account (pha
     assert.equal(a.messages[2].content, "a\n\nb");
   });
 
-  it("auto:fast picks the cheapest model, answers, and charges the exact cost", async () => {
+  it("auto:fast picks the cheapest model, tops up the credit first, answers, and charges the exact cost", async () => {
+    const before = await usdgBalance(w, company);
     const r = await ask(e, key, "auto:fast");
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.model, "purser/claude-haiku-5-5");
@@ -103,25 +104,27 @@ describe("models at cost: provider price, paid from the agent's own account (pha
     assert.equal(r.body.purser.price.markup, "0");
     assert.equal(fake.seen.at(-1).system, "Be brief.");
     assert.equal(fake.seen.at(-1).max_tokens, 600);
+    assert.equal(r.body.purser.topUp.usd, "0.001000", "paid before the model was asked");
+    assert.equal(await usdgBalance(w, company), before + 1000n);
+    assert.equal(r.body.purser.creditUsd, "0.000650");
     const owed = await e.get("/v1/models/owed", key);
-    assert.equal(owed.body.owedUsd, "0.000350");
+    assert.equal(owed.body.owedUsd, "0.000000", "nothing is ever owed");
+    assert.equal(owed.body.creditUsd, "0.000650");
   });
 
-  it("once the calls add up, the next call pays first: one payment per model, to the company, from the agent's account", async () => {
+  it("calls draw on the credit; when it is short, the next call tops it up on chain before the model is asked", async () => {
     const before = await usdgBalance(w, company);
-    await ask(e, key, "auto:fast"); // owed 0.000700
-    await ask(e, key, "auto:fast"); // owed 0.001050, due
-    const r = await ask(e, key, "auto:fast"); // pays 0.001050 first, then answers
-    assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.equal(r.body.purser.settled.length, 1);
-    assert.equal(r.body.purser.settled[0].usd, "0.001050");
-    assert.equal(r.body.purser.settled[0].calls, 3);
-    assert.equal(await usdgBalance(w, company), before + 1050n);
+    const two = await ask(e, key, "auto:fast"); // reserves ~0.000310 of 0.000650
+    assert.equal(two.body.purser.topUp, null);
+    assert.equal(two.body.purser.creditUsd, "0.000300");
+    const three = await ask(e, key, "auto:fast"); // 0.000300 is less than the most the call can cost
+    assert.equal(three.status, 200, JSON.stringify(three.body));
+    assert.equal(three.body.purser.topUp.usd, "0.001000");
+    assert.equal(three.body.purser.creditUsd, "0.000950");
+    assert.equal(await usdgBalance(w, company), before + 1000n);
     const rec = listReceipts(w.ctx, { safe, category: "model" }).items.find((x) => x.counterparty === company.toLowerCase());
-    assert.ok(rec, "a model receipt");
-    assert.equal(rec!.model!.model, "claude-haiku-5-5");
-    assert.equal(rec!.model!.promptTokens, 3000);
-    assert.equal(r.body.purser.owedUsd, "0.000350");
+    assert.ok(rec, "a model receipt for the top-up");
+    assert.equal(rec!.service, CREDIT_SERVICE);
   });
 
   it("the owner's budget per model sends auto to the next model, and refuses a named model", async () => {
@@ -163,25 +166,27 @@ describe("models at cost: provider price, paid from the agent's own account (pha
     assert.equal(r.status, 200, JSON.stringify(r.body));
   });
 
-  it("when the provider fails, nothing is charged", async () => {
-    const owed = (await e.get("/v1/models/owed", key)).body.owedUsd;
+  it("when the provider fails, nothing is charged: the reservation goes back to the credit", async () => {
+    await ask(e, key, "auto:fast", "x", { max_tokens: 50 }); // makes sure the credit covers the next call
+    const credit = creditMicro(w.ctx, safe);
     fake.failOnce();
     const r = await ask(e, key, "auto:fast", "x", { max_tokens: 50 });
     assert.equal(r.status, 502, JSON.stringify(r.body));
     assert.match(r.body.error.message, /Nothing was charged/);
-    assert.equal((await e.get("/v1/models/owed", key)).body.owedUsd, owed);
+    assert.equal(creditMicro(w.ctx, safe), credit);
   });
 
-  it("the agent can settle on demand; spend per model shows in accounting", async () => {
+  it("settle has nothing to pay; spend per model and per task shows in accounting", async () => {
     const s = await e.post("/v1/models/settle", {}, key);
     assert.equal(s.status, 200, JSON.stringify(s.body));
+    assert.deepEqual(s.body.paid, []);
     assert.equal((await e.get("/v1/models/owed", key)).body.owedUsd, "0.000000");
     const spend = await e.get(`/v1/accounts/${safe}/model-spend`);
     assert.ok(spend.body.today.some((x: any) => x.model === "claude-opus-5-5" && x.calls >= 2), JSON.stringify(spend.body));
     const acct = await e.get(`/v1/accounts/${safe}/pnl`, owner);
     assert.equal(acct.status, 200, JSON.stringify(acct.body));
     assert.ok(acct.body.byModel.some((x: any) => JSON.stringify(x).includes("purser/claude-haiku-5-5")), JSON.stringify(acct.body.byModel));
-    // one settlement pays many calls; the books still show what each task cost
+    // one top-up pays many calls; the books still show what each task cost
     const t7 = acct.body.byTask.find((x: any) => x.key === "task-7");
     const t8 = acct.body.byTask.find((x: any) => x.key === "task-8");
     assert.ok(t7 && t8, JSON.stringify(acct.body.byTask));

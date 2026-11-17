@@ -73,15 +73,16 @@ export function makeChain(cfg: Config, store?: GasStore) {
   // Facilitator settlements for payers who are not accounts ("open") may use only this share of a key's day, so a
   // stranger can never use up the gas that accounts' own payments need.
   const openPct = BigInt(Math.min(100, Math.max(0, Number(process.env.PURSER_GAS_OPEN_PCT ?? "30"))));
+  // and no single account may use more than this share of a key's day with its own payments and calls
+  const accountPct = BigInt(Math.min(100, Math.max(0, Number(process.env.PURSER_GAS_ACCOUNT_PCT ?? "10"))));
   const enforce = live || process.env.PURSER_GAS_ENFORCE === "1";
   const memory = new Map<string, string>();
   const kv: GasStore = store ?? { get: (k) => memory.get(k) ?? null, set: (k, v) => void memory.set(k, v) };
   const today = () => new Date().toISOString().slice(0, 10);
-  const spentKey = (who: string, open: boolean) => `gas_spent:${today()}:${who.toLowerCase()}${open ? ":open" : ""}`;
-  const spentOf = (who: string, open = false) => BigInt(kv.get(spentKey(who, open)) ?? "0");
-  const addSpent = (who: string, open: boolean, wei: bigint) => {
-    kv.set(spentKey(who, false), (spentOf(who) + wei).toString());
-    if (open) kv.set(spentKey(who, true), (spentOf(who, true) + wei).toString());
+  const spentKey = (who: string, part: string | null) => `gas_spent:${today()}:${who.toLowerCase()}${part ? `:${part}` : ""}`;
+  const spentOf = (who: string, part: string | null = null) => BigInt(kv.get(spentKey(who, part)) ?? "0");
+  const addSpent = (who: string, parts: (string | null)[], wei: bigint) => {
+    for (const p of [null, ...parts.filter(Boolean)]) kv.set(spentKey(who, p), (spentOf(who, p) + wei).toString());
   };
   const pollingInterval = local ? 50 : 1000;
 
@@ -109,17 +110,20 @@ export function makeChain(cfg: Config, store?: GasStore) {
   /**
    * Sends from an engine key. The gas is estimated first and the transaction is refused when the estimate is above
    * `maxGas` (by kind, GAS_LIMITS); it is sent with that limit, so it can never burn more. `open` marks a settlement
-   * for a payer that is not an account: it counts against the smaller open share of the day's budget too.
+   * for a payer that is not an account: it counts against the smaller open share of the day's budget too. `account`
+   * is the Purser account the transaction is for: it counts against that account's own share.
    */
   async function send(
     account: PrivateKeyAccount,
-    tx: { to: Address; data?: Hex; value?: bigint; gas?: bigint; maxGas?: bigint; open?: boolean },
+    tx: { to: Address; data?: Hex; value?: bigint; gas?: bigint; maxGas?: bigint; open?: boolean; account?: string },
   ): Promise<TransactionReceipt> {
     if (!broadcast) throw new Error("broadcast disabled: this engine only sends transactions to a local node");
+    const acctPart = tx.account ? `acct:${tx.account.toLowerCase()}` : null;
     const budgetCheck = () => {
       if (!enforce) return;
       if (spentOf(account.address) >= capWei) throw new GasRefused("the engine's gas budget for today is used up; it resets at 00:00 UTC");
-      if (tx.open && spentOf(account.address, true) * 100n >= capWei * openPct) throw new GasRefused("the facilitator's gas share for today is used up; it resets at 00:00 UTC");
+      if (tx.open && spentOf(account.address, "open") * 100n >= capWei * openPct) throw new GasRefused("the facilitator's gas share for today is used up; it resets at 00:00 UTC");
+      if (acctPart && spentOf(account.address, acctPart) * 100n >= capWei * accountPct) throw new GasRefused("this account's share of the engine's gas for today is used up; it resets at 00:00 UTC");
     };
     budgetCheck();
     const prev = queues.get(account.address) ?? Promise.resolve();
@@ -141,14 +145,14 @@ export function makeChain(cfg: Config, store?: GasStore) {
         gas,
       });
       const r = await pub.waitForTransactionReceipt({ hash, pollingInterval });
-      addSpent(account.address, !!tx.open, r.gasUsed * r.effectiveGasPrice);
+      addSpent(account.address, [tx.open ? "open" : null, acctPart], r.gasUsed * r.effectiveGasPrice);
       return r;
     });
     queues.set(account.address, run);
     return run as Promise<TransactionReceipt>;
   }
 
-  return { chain, pub, broadcast, live, accounts, send, wallet, gasSpent: spentOf };
+  return { chain, pub, broadcast, live, accounts, send, wallet, gasSpent: (who: string, part: "open" | `acct:${string}` | null = null) => spentOf(who, part) };
 }
 
 /**

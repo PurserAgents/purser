@@ -8,20 +8,20 @@ import { AT_COST_MODELS, SETTLE_AT_USD, callCost, levelLabel } from "@/lib/model
 
 export const metadata: Metadata = {
   title: "Models at cost",
-  description: "Every AI model at the provider's own price, paid per call from the agent's own account. No markup, nothing prepaid, the owner's rules and budgets on every call.",
+  description: "Every AI model at the provider's own price, paid from the agent's own account before each call. No markup, the owner's rules and budgets on every call.",
 };
 
 const promises = [
   { icon: IconWallet, title: "Paid from the agent's account", text: "Each call is charged at the provider's price and paid from the agent's own account, through its rules and the firewall." },
-  { icon: IconVault, title: "No balance with anyone", text: "Nothing sits prepaid at a middleman. The money stays in the account until the calls are made." },
+  { icon: IconVault, title: "Paid before the call", text: `A small prepaid credit, topped up from the account by at least $${SETTLE_AT_USD.toFixed(2)} at a time. Each call takes its exact cost from it; what is left stays for the next calls.` },
   { icon: IconCpu, title: "The cheapest model that does the job", text: "Ask for fast, balanced or best. Purser picks the lowest priced model at that level that is still inside your budgets." },
 ];
 
 const steps = [
-  { icon: IconShield, title: "Checked before the call", text: "The account must be able to pay what it owes plus the most this call can cost, under its rules. If not, the model is never asked." },
+  { icon: IconShield, title: "Paid before the call", text: "The most the call can cost is taken from the credit first. When the credit is short, the account tops it up on chain, under its rules and the firewall. If it cannot, the model is never asked." },
   { icon: IconCpu, title: "The call", text: "Purser sends the request to the provider and returns the answer in the OpenAI format your framework already speaks." },
   { icon: IconReceipt, title: "The exact cost", text: "The tokens the call really used, times the provider's price. No markup, rounded to the millionth of a dollar." },
-  { icon: IconWallet, title: "Paid on chain", text: `Calls settle together once they add up to $${SETTLE_AT_USD.toFixed(2)} or after an hour, one payment per model, so gas never costs more than the call.` },
+  { icon: IconWallet, title: "The rest stays yours", text: `What the call did not use goes back to the credit. Top-ups are at least $${SETTLE_AT_USD.toFixed(2)}, so gas never costs more than the calls.` },
 ];
 
 const samples: CodeSample[] = [
@@ -47,7 +47,7 @@ const r = await purser.chat.completions.create({
   model: "auto:balanced",
   messages: [{ role: "user", content: "Draft the reply to this client." }],
 });
-await purser.atCost.owed(); // what the agent owes since the last payment`,
+await purser.atCost.owed(); // the prepaid credit left for the next calls`,
   },
   {
     label: "curl",

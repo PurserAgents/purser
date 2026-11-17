@@ -184,3 +184,16 @@ export function makeOfflineEngine(over: Partial<Parameters<typeof loadConfig>[1]
   );
   return createEngine(cfg);
 }
+
+/**
+ * Purser Shield counts a report for others only from an independent account in good standing. This gives an account
+ * that standing in the test database: $25 paid out (a real payment), backdated eight days, and its own owner.
+ */
+export async function giveStanding(w: World, safe: Address, owner: Address = randomAddress()) {
+  const { submitIntent } = await import("../src/intents.ts");
+  const r = await submitIntent(w.ctx, { safe, spec: { kind: "pay", pay: { token: w.dep.usdg, to: randomAddress(), amount: usdg(25) } }, category: "transfer", signer: w.agent });
+  if (r.intent.status !== "executed") throw new Error(`standing payment: ${r.intent.status} ${r.intent.error ?? ""}`);
+  w.ctx.db.prepare("UPDATE receipts SET created_at = created_at - 8 * 86400 WHERE safe = ?").run(safe.toLowerCase());
+  w.ctx.db.prepare("UPDATE accounts SET owners = ? WHERE safe = ?").run(JSON.stringify([owner.toLowerCase()]), safe.toLowerCase());
+  w.ctx.db.prepare("DELETE FROM kv WHERE key = ?").run(`owners_seen:${safe.toLowerCase()}`);
+}

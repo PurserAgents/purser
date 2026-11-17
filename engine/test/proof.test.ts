@@ -146,10 +146,13 @@ describe("the payment proof", () => {
     const rcpt = await w.ctx.chain.send(w.ctx.chain.accounts.relayer!, { to, value: 1000n });
     assert.equal(await paymentProven(w.ctx, rcpt, { payer: w.ctx.chain.accounts.relayer!.address, token: ZERO, to, amount: 1000n }), true);
     assert.equal(await paymentProven(w.ctx, rcpt, { payer: w.ctx.chain.accounts.relayer!.address, token: ZERO, to, amount: 1001n }), false);
+    const relayer = w.ctx.chain.accounts.relayer!.address;
     const p = txProof(w.ctx, rcpt);
-    assert.equal(await p.proves({ payer: randomAddress(), token: ZERO, to, amount: 600n }), true);
-    assert.equal(await p.proves({ payer: randomAddress(), token: ZERO, to, amount: 600n }), false, "two claims cannot share one balance change");
-    assert.equal(await paymentProven(w.ctx, rcpt, { payer: randomAddress(), token: ZERO, to: randomAddress(), amount: 1n }), false);
+    assert.equal(await p.proves({ payer: relayer, token: ZERO, to, amount: 600n }), true);
+    assert.equal(await p.proves({ payer: relayer, token: ZERO, to, amount: 600n }), false, "two claims cannot share one balance change");
+    assert.equal(await paymentProven(w.ctx, rcpt, { payer: relayer, token: ZERO, to: randomAddress(), amount: 1n }), false);
+    // the payee got the amount in that block, but from someone else: the claimed payer's balance did not fall
+    assert.equal(await paymentProven(w.ctx, rcpt, { payer: randomAddress(), token: ZERO, to, amount: 1000n }), false);
   });
 
   it("a real payment from a real Safe is proven, through the relay and the indexer", async () => {

@@ -73,6 +73,7 @@ export async function decideWithPasskey(ctx: Ctx, iid: string, approve: boolean,
   let receipt;
   try {
     receipt = await ctx.chain.send(relayer, {
+      account: p.safe,
       to: dep.passkey,
       data: encodeFunctionData({ abi: purserPasskeyAbi, functionName: approve ? "approve" : "reject", args: [p.safe, p.digest, assertion] }),
     });

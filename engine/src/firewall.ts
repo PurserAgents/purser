@@ -1,4 +1,4 @@
-import { decodeEventLog, getAddress, size, slice, type Address, type Hex } from "viem";
+import { decodeEventLog, decodeFunctionData, getAddress, isHex, keccak256, parseAbi, size, slice, toEventSelector, toHex, type Address, type Hex } from "viem";
 import { erc20Abi } from "../../packages/sdk/src/abi.ts";
 import type { AssetChange, SimulationSummary, Verdict, VerdictReason } from "../../packages/sdk/src/schema.ts";
 import { balanceOf, setsOf } from "./accounts.ts";
@@ -257,6 +257,87 @@ const DANGEROUS_SELECTORS: Record<string, string> = {
 };
 const DEAD = new Set(["0x000000000000000000000000000000000000dead", ZERO]);
 
+/** Events that mean control of a contract changed hands, whatever call led there. Checked in every backend's logs. */
+const TAKEOVER_EVENTS: Record<string, string> = Object.fromEntries(
+  [
+    ["OwnershipTransferred(address,address)", "a change of owner"],
+    ["OwnershipTransferStarted(address,address)", "a change of owner"],
+    ["Upgraded(address)", "an upgrade of the contract's code"],
+    ["BeaconUpgraded(address)", "an upgrade of the contract's code"],
+    ["AdminChanged(address,address)", "a change of the proxy's admin"],
+    ["RoleAdminChanged(bytes32,bytes32,bytes32)", "a change of who grants roles"],
+    ["AddedOwner(address)", "a new owner of a Safe"],
+    ["RemovedOwner(address)", "an owner removed from a Safe"],
+    ["ChangedThreshold(uint256)", "a change of a Safe's signers"],
+    ["EnabledModule(address)", "a new module on a Safe"],
+    ["ChangedGuard(address)", "a new guard on a Safe"],
+    ["ChangedFallbackHandler(address)", "a new fallback handler on a Safe"],
+  ].map(([sig, why]) => [toEventSelector(sig).toLowerCase(), why]),
+);
+const ROLE_GRANTED = toEventSelector("RoleGranted(bytes32,address,address)").toLowerCase();
+/** Roles that control a contract: the OpenZeppelin default admin and the usual admin-like names. */
+const ADMIN_ROLES = new Set([`0x${"0".repeat(64)}`, ...["ADMIN_ROLE", "DEFAULT_ADMIN_ROLE", "OWNER_ROLE", "UPGRADER_ROLE", "GOVERNOR_ROLE", "MANAGER_ROLE"].map((r) => keccak256(toHex(r)).toLowerCase())]);
+
+/** What a takeover event in the simulation's logs did, or null. */
+export function takeoverEvent(l: { topics: Hex[] }): string | null {
+  const t = l.topics[0]?.toLowerCase();
+  if (!t) return null;
+  if (TAKEOVER_EVENTS[t]) return TAKEOVER_EVENTS[t];
+  if (t === ROLE_GRANTED && l.topics[1] && ADMIN_ROLES.has(l.topics[1].toLowerCase())) return "an admin role granted";
+  return null;
+}
+
+const BATCH_ABI = parseAbi([
+  "function multicall(bytes[] data)",
+  "function multicall(uint256 deadline, bytes[] data)",
+  "function multicall(bytes32 previousBlockhash, bytes[] data)",
+  "function aggregate((address target, bytes callData)[] calls)",
+  "function tryAggregate(bool requireSuccess, (address target, bytes callData)[] calls)",
+  "function blockAndAggregate((address target, bytes callData)[] calls)",
+  "function aggregate3((address target, bool allowFailure, bytes callData)[] calls)",
+  "function aggregate3Value((address target, bool allowFailure, uint256 value, bytes callData)[] calls)",
+  "function execute(address to, uint256 value, bytes data)",
+  "function execute(address to, uint256 value, bytes data, uint8 operation)",
+  "function executeBatch(address[] dest, bytes[] func)",
+  "function executeBatch(address[] dest, uint256[] value, bytes[] func)",
+  "function multiSend(bytes transactions)",
+]);
+
+/** The selectors inside call data, unwrapping the usual batch shapes (multicall, Multicall3, execute, Safe multiSend). */
+export function innerSelectors(data: Hex | null | undefined, depth = 0): string[] {
+  if (!data || size(data) < 4) return [];
+  const out = [slice(data, 0, 4).toLowerCase()];
+  if (depth >= 4) return out;
+  let d: { functionName: string; args: readonly unknown[] };
+  try {
+    d = decodeFunctionData({ abi: BATCH_ABI, data }) as typeof d;
+  } catch {
+    return out;
+  }
+  const inner: Hex[] = [];
+  for (const a of d.args) {
+    if (Array.isArray(a)) for (const x of a) {
+      if (typeof x === "string" && isHex(x)) inner.push(x as Hex);
+      else if (x && typeof x === "object" && "callData" in x) inner.push((x as { callData: Hex }).callData);
+    }
+    else if (typeof a === "string" && isHex(a) && size(a as Hex) >= 4 && d.functionName !== "multiSend") inner.push(a as Hex);
+  }
+  if (d.functionName === "multiSend") {
+    // packed: operation (1) | to (20) | value (32) | data length (32) | data
+    const b = d.args[0] as Hex;
+    let i = 0;
+    const n = size(b);
+    while (i + 85 <= n) {
+      const len = Number(BigInt(slice(b, i + 53, i + 85)));
+      if (i + 85 + len > n) break;
+      inner.push(len ? slice(b, i + 85, i + 85 + len) : "0x");
+      i += 85 + len;
+    }
+  }
+  for (const x of inner) out.push(...innerSelectors(x, depth + 1));
+  return out;
+}
+
 export interface FirewallInput {
   safe: Address;
   kind: "pay" | "call" | "treasury" | "stream" | "subscription" | "escrow";
@@ -372,12 +453,25 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
   }
 
   // 6. known-bad patterns in call data
-  // the agent's own call data is always checked: eth_simulateV1 reports only the outer call into the module
+  // the agent's own call data is always checked, with batches unwrapped: eth_simulateV1 reports only the outer call
   const selectors = new Set(sim.calls.map((c) => c.selector?.toLowerCase()).filter(Boolean) as string[]);
-  if (input.callData && size(input.callData) >= 4) selectors.add(slice(input.callData, 0, 4).toLowerCase());
+  for (const sel of innerSelectors(input.callData)) selectors.add(sel);
+  let takeover = false;
   for (const sel of selectors) {
-    if (DANGEROUS_SELECTORS[sel])
+    if (DANGEROUS_SELECTORS[sel] && !takeover) {
+      takeover = true;
       add("dangerous_call", "block", "A takeover-style call", `The call runs ${DANGEROUS_SELECTORS[sel]}(), which changes who controls a contract.`);
+    }
+  }
+  // and what happened, whatever the call looked like: the simulation's logs, on both backends
+  for (const l of raw.logs) {
+    const why = takeoverEvent(l);
+    // a contract created by this same call emits these from its constructor: only a contract that exists now counts
+    const existing = why && !takeover ? await ctx.chain.pub.getCode({ address: lower(l.address) }).catch(() => "0xfe" as Hex) : undefined; // a node error counts as existing
+    if (why && existing && existing !== "0x") {
+      takeover = true;
+      add("dangerous_call", "block", "A takeover-style call", `The simulation shows ${why} at ${lower(l.address)}, which changes who controls a contract.`);
+    }
   }
 
   // 7. the text that led to the payment

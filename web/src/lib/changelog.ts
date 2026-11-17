@@ -10,13 +10,29 @@ export interface ChangelogEntry {
 export const changelog: ChangelogEntry[] = [
   {
     date: "2026-11-17",
+    version: "0.9.2",
+    title: "Models at cost are paid before the call",
+    summary: "Every model call is now paid before it runs, from a small prepaid credit the agent's account tops up on chain.",
+    items: [
+      "Before a call, the most it can cost is taken from the account's credit; what the call did not use goes back to it.",
+      "When the credit is short, the account tops it up first by at least $0.25, through its rules and the firewall. The top-up counts once the transfer is seen on chain.",
+      "Calls made at the same time can never share the same money, and a frozen account gets no calls.",
+      "Purser Shield: a report counts for every account only from accounts with different owners, at least $25 paid out and a week of history, that never paid the address themselves.",
+      "The firewall also reads what a call did: a change of owner, admin, code or an admin role in the simulation blocks it, inside batches too.",
+      "Each account has its own share of the engine's daily gas.",
+      "Tokens Purser does not list are shown by address and never written into another account's books.",
+      "/v1/health names the build it runs.",
+    ],
+  },
+  {
+    date: "2026-11-17",
     version: "0.9.1",
     title: "Security update",
     summary: "Accounts must be real Safes, a payment counts only when the money moves, and Purser Shield needs 3 accounts to agree before an attacker is refused everywhere.",
     items: [
       "An address counts as a Purser account only when it is a Safe 1.4.1 with the Purser module enabled.",
       "A payment counts only when the token's own transfer to the payee is in the transaction, or for ETH, when the payee's balance grew by the amount.",
-      "Purser Shield: a report protects the account that made it at once. An attacker reaches the shared list, and then every account, once 3 accounts with a payment record report it. Entries expire after 30 days, and an owner can take back a report.",
+      "Purser Shield: a report protects the account that made it at once. An attacker reaches the shared list, and then every account, once 3 independent accounts with a payment history report it. Entries expire after 30 days, and an owner can take back a report.",
       "A list entry never freezes an account. Scheduled payouts to a flagged payee stop and the owner is told.",
       "The firewall checks every agent call for takeover-style functions, whatever the node's simulation reports, and refuses to sign when it cannot simulate.",
       "The engine fetches only public https addresses for agents, webhooks and model providers.",

@@ -8,9 +8,16 @@ export type Tokens = ReturnType<typeof makeTokens>;
 
 export const ETH_INFO: TokenInfo = { address: ZERO, symbol: "ETH", decimals: 18 };
 
-/** Token metadata and USD values. USDG counts as one US dollar; ETH uses the chain's Chainlink ETH/USD feed. */
+/**
+ * Token metadata and USD values. USDG counts as one US dollar; ETH uses the chain's Chainlink ETH/USD feed.
+ * Only listed tokens (ETH, USDG, WETH and the deployment's vaults) show the symbol they report; any other token is
+ * named by its address, so a look-alike that calls itself "USDG" never reads as USDG.
+ */
 export function makeTokens(pub: PublicClient, dep: Deployment | null) {
   const cache = new Map<string, TokenInfo>();
+  const listedSet = new Set([ZERO, ...(dep ? [dep.usdg, ...(dep.weth ? [dep.weth] : []), ...(dep.vaults ?? [])] : [])].map((a) => lower(a)));
+  const listed = (addr: string) => listedSet.has(lower(addr));
+  const unlistedName = (a: string) => `${a.slice(0, 6)}...${a.slice(-4)}`;
   cache.set(ZERO, ETH_INFO);
   if (dep) cache.set(lower(dep.usdg), { address: lower(dep.usdg), symbol: "USDG", decimals: 6 });
   let ethPrice: { micro: bigint; at: number } | null = null;
@@ -25,15 +32,15 @@ export function makeTokens(pub: PublicClient, dep: Deployment | null) {
         pub.readContract({ address: key, abi: erc20Abi, functionName: "symbol" }),
         pub.readContract({ address: key, abi: erc20Abi, functionName: "decimals" }),
       ]);
-      const t = { address: key, symbol, decimals: Number(decimals) };
+      const t = { address: key, symbol: listed(key) ? symbol : unlistedName(key), decimals: Number(decimals) };
       cache.set(key, t);
       return t;
     } catch {
-      return { address: key, symbol: "TOKEN", decimals: 18 };
+      return { address: key, symbol: listed(key) ? "TOKEN" : unlistedName(key), decimals: 18 };
     }
   }
 
-  const infoSync = (addr: string): TokenInfo => cache.get(lower(addr)) ?? { address: lower(addr), symbol: "TOKEN", decimals: 18 };
+  const infoSync = (addr: string): TokenInfo => cache.get(lower(addr)) ?? { address: lower(addr), symbol: listed(addr) ? "TOKEN" : unlistedName(lower(addr)), decimals: 18 };
 
   /** Micro-dollars per whole ETH, refreshed at most once a minute. */
   async function ethUsdMicro(): Promise<bigint | null> {
@@ -78,7 +85,7 @@ export function makeTokens(pub: PublicClient, dep: Deployment | null) {
     return { token: t, amount: amount.toString(), display: `${fmt(amount, t.decimals)} ${t.symbol}`, usd: u === null ? null : usd(u) };
   }
 
-  return { info, infoSync, money, usdMicro, usdMicroSync, ethUsdMicro };
+  return { info, infoSync, money, usdMicro, usdMicroSync, ethUsdMicro, listed };
 }
 
 export const isEth = (a: Address | string) => sameAddress(a, ZERO);

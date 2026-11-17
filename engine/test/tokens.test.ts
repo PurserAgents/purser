@@ -52,20 +52,24 @@ describe("tokens and USD values (pure, stub node)", () => {
     assert.equal(m.amount, "1234560000");
   });
 
-  it("reads and caches an unknown token's symbol and decimals; falls back when it is not a token", async () => {
+  it("reads and caches a token's decimals; only a listed token shows the symbol it reports; falls back when it is not a token", async () => {
     const { pub, calls } = stubPub();
     const t = makeTokens(pub, dep());
     const info = await t.info(OTHER);
-    assert.deepEqual(info, { address: OTHER.toLowerCase(), symbol: "TST", decimals: 8 });
+    // an unlisted token is named by its address, whatever symbol it reports (a look-alike can call itself USDG)
+    assert.deepEqual(info, { address: OTHER.toLowerCase(), symbol: "0x0000...00aa", decimals: 8 });
     await t.info(OTHER);
     assert.equal(calls.filter((c) => c.endsWith(":symbol")).length, 1, "cached after the first read");
-    assert.equal(t.infoSync(OTHER).symbol, "TST");
+    assert.equal(t.infoSync(OTHER).symbol, "0x0000...00aa");
+    assert.equal((await t.info(WETH)).symbol, "TST", "a listed token keeps its symbol");
+    assert.equal(t.listed(OTHER), false);
+    assert.equal(t.listed(USDG), true);
     assert.equal(t.usdMicroSync(OTHER, 100n), null, "no price for unknown tokens");
     assert.equal(t.money(OTHER, 100_000_000n).usd, null);
 
     const bad = makeTokens(stubPub({ failTokens: true }).pub, dep());
-    assert.deepEqual(await bad.info(OTHER), { address: OTHER.toLowerCase(), symbol: "TOKEN", decimals: 18 });
-    assert.equal(bad.infoSync("0x00000000000000000000000000000000000000bb").symbol, "TOKEN");
+    assert.deepEqual(await bad.info(OTHER), { address: OTHER.toLowerCase(), symbol: "0x0000...00aa", decimals: 18 });
+    assert.equal(bad.infoSync("0x00000000000000000000000000000000000000bb").symbol, "0x0000...00bb");
   });
 
   it("prices ETH and WETH from the Chainlink feed (8 decimals to micro-dollars), at most once a minute", async () => {
@@ -99,7 +103,7 @@ describe("tokens and USD values (pure, stub node)", () => {
   it("works without a deployment: only ETH is known", async () => {
     delete process.env.PURSER_ETH_USD;
     const t = makeTokens(stubPub().pub, null);
-    assert.equal(t.infoSync(USDG).symbol, "TOKEN");
+    assert.equal(t.infoSync(USDG).symbol, "0x5fc5...d168", "without a deployment nothing but ETH is listed");
     assert.equal(t.usdMicroSync(USDG, 1n), null);
     assert.equal(await t.ethUsdMicro(), null);
   });

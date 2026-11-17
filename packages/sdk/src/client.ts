@@ -96,7 +96,7 @@ export class Purser {
           model: string;
           choices: { message: { role: string; content: string }; finish_reason?: string }[];
           usage?: Record<string, number>;
-          purser: { costUsd: string; receipt?: string | null; paid?: boolean; model?: string; owedUsd?: string; settled?: { model: string; usd: string; calls: number; tx: string | null }[] };
+          purser: { costUsd: string; receipt?: string | null; paid?: boolean; model?: string; owedUsd?: string; creditUsd?: string; topUp?: { usd: string; tx: string | null; receipt: string | null } | null; settled?: { model: string; usd: string; calls: number; tx: string | null }[] };
         }>("POST", "/v1/chat/completions", body, "agent"),
     },
   };
@@ -104,12 +104,13 @@ export class Purser {
 
   /** Models at cost: the provider's own price, paid from the agent's account. Use model "auto:fast", "auto:balanced", "auto:best" or "purser/<model>". */
   atCost = {
-    prices: () => this.req<{ items: { id: string; name: string; level: string; inputPer1MUsd: string; outputPer1MUsd: string; markup: string }[]; settleAtUsd: string; on: boolean }>("GET", "/v1/models/prices"),
-    owed: () => this.req<{ owedUsd: string; byModel: { model: string; usd: string; calls: number }[] }>("GET", "/v1/models/owed", undefined, "agent"),
+    prices: () => this.req<{ items: { id: string; name: string; level: string; inputPer1MUsd: string; outputPer1MUsd: string; markup: string }[]; topUpUsd: string; settleAtUsd: string; prepaid: boolean; on: boolean }>("GET", "/v1/models/prices"),
+    /** The prepaid credit left (`creditUsd`) and anything still owed from before calls were prepaid. */
+    owed: () => this.req<{ owedUsd: string; creditUsd: string; byModel: { model: string; usd: string; calls: number }[] }>("GET", "/v1/models/owed", undefined, "agent"),
     settle: () => this.req<{ paid: { model: string; usd: string; calls: number; receipt: string | null; tx: string | null }[]; refused: { model: string; usd: string; reason: string } | null }>("POST", "/v1/models/settle", {}, "agent"),
     budgets: (safe: string) => this.req<{ items: { model: string; dailyUsd: string | null; perTaskUsd: string | null }[] }>("GET", `/v1/accounts/${safe}/model-budgets`),
     setBudget: (safe: string, b: { model: string; dailyUsd?: number | null; perTaskUsd?: number | null }) => this.req<{ model: string }>("PUT", `/v1/accounts/${safe}/model-budgets`, b, "owner"),
-    spend: (safe: string) => this.req<{ today: { model: string; calls: number; usd: string }[]; owedUsd: string }>("GET", `/v1/accounts/${safe}/model-spend`),
+    spend: (safe: string) => this.req<{ today: { model: string; calls: number; usd: string }[]; owedUsd: string; creditUsd: string }>("GET", `/v1/accounts/${safe}/model-spend`),
   };
 
   streams = {

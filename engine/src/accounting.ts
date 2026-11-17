@@ -3,6 +3,7 @@ import type { Pnl, PnlLine } from "../../packages/sdk/src/schema.ts";
 import { registerRoutes } from "./api/registry.ts";
 import { param, qInt, safeParam, send } from "./api/http.ts";
 import type { Ctx } from "./ctx.ts";
+import { CREDIT_SERVICE } from "./models.ts";
 import type { ReceiptRow } from "./receipts.ts";
 import { getTeam } from "./teams.ts";
 import { dayKey, fmt, lower, now, parseJson, usd } from "./util.ts";
@@ -59,11 +60,19 @@ export function pnl(ctx: Ctx, scope: { safes: string[]; safe?: string | null; te
     }
     line(cat, r.category, r.category, isIn ? v : 0n, isIn ? 0n : v);
     const m = parseJson<{ provider: string; model: string } | null>(r.model, null);
-    const modelKey = m ? `${m.provider}/${m.model}` : r.category === "model" && r.service ? r.service : null;
+    const credit = r.category === "model" && r.service === CREDIT_SERVICE;
+    const modelKey = m ? `${m.provider}/${m.model}` : r.category === "model" && r.service && !credit ? r.service : null;
     if (!isIn && modelKey) line(model, modelKey, modelKey, 0n, v);
+    if (!isIn && credit) {
+      // a prepaid top-up: the books show the calls it paid for, per model
+      const calls = ctx.db
+        .prepare("SELECT provider, model, SUM(CAST(cost_micro AS INTEGER)) AS micro FROM model_calls WHERE receipt_id = ? GROUP BY provider, model")
+        .all(r.id) as { provider: string; model: string; micro: number }[];
+      for (const c of calls) line(model, `${c.provider}/${c.model}`, `${c.provider}/${c.model}`, 0n, BigInt(c.micro));
+    }
     if (!isIn && r.task_id) line(task, r.task_id, r.task_id, 0n, v);
     else if (!isIn && r.category === "model") {
-      // a model settlement pays many calls at once; the calls remember their task
+      // a model settlement or top-up pays many calls at once; the calls remember their task
       const calls = ctx.db
         .prepare("SELECT task_id, SUM(CAST(cost_micro AS INTEGER)) AS micro FROM model_calls WHERE receipt_id = ? AND task_id IS NOT NULL GROUP BY task_id")
         .all(r.id) as { task_id: string; micro: number }[];

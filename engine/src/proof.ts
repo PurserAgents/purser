@@ -81,37 +81,47 @@ export interface PaymentClaim {
 
 /**
  * Checks payments against one transaction's receipt. ERC-20: the token's own Transfer log from the payer to the
- * payee for exactly the amount; each Transfer log proves one payment only. ETH (no log): the payee's balance grew by
- * at least the ETH claimed for it in this transaction across the block. If the node no longer has the state of the
- * block before, the payer must still be a real Safe (checked fresh) that reported a module execution in the
- * transaction.
+ * payee for exactly the amount; each Transfer log proves one payment only. ETH (no log): across the block, the payee's
+ * balance grew and the payer's fell by at least the ETH claimed between them in this transaction, so money from
+ * someone else in the same block cannot stand in for it. If the node no longer has the state of the block before,
+ * the payer must still be a real Safe (checked fresh) that reported a module execution in the transaction.
  */
 export function txProof(ctx: Ctx, receipt: { logs: readonly Log[]; blockNumber: bigint }) {
   const used = new Set<number>();
   const ethClaimed = new Map<string, bigint>();
+  const ethSent = new Map<string, bigint>();
+  const delta = async (who: string) => {
+    const [after, before] = await Promise.all([
+      ctx.chain.pub.getBalance({ address: who as Address, blockNumber: receipt.blockNumber }),
+      ctx.chain.pub.getBalance({ address: who as Address, blockNumber: receipt.blockNumber - 1n }),
+    ]);
+    return after - before;
+  };
   return {
     async proves(c: PaymentClaim): Promise<boolean> {
       if (c.amount <= 0n) return false;
       if (sameAddress(c.token, ZERO)) {
         const to = lower(c.to);
+        const from = lower(c.payer);
         const want = (ethClaimed.get(to) ?? 0n) + c.amount;
-        let grew: bigint | null = null;
+        const sent = (ethSent.get(from) ?? 0n) + c.amount;
+        let moved: { grew: bigint; fell: bigint } | null = null;
         try {
-          const [after, before] = await Promise.all([
-            ctx.chain.pub.getBalance({ address: to, blockNumber: receipt.blockNumber }),
-            ctx.chain.pub.getBalance({ address: to, blockNumber: receipt.blockNumber - 1n }),
-          ]);
-          grew = after - before;
+          const [g, f] = await Promise.all([delta(to), delta(from)]);
+          moved = { grew: g, fell: -f };
         } catch {
-          grew = null;
+          moved = null;
         }
         const ok =
-          grew !== null
-            ? grew >= want
+          moved !== null
+            ? moved.grew >= want && moved.fell >= sent
             : (await checkSafe(ctx, c.payer, { fresh: true })).ok &&
               !!ctx.dep &&
               receipt.logs.some((l) => sameAddress(l.address, c.payer) && l.topics[0] === MODULE_SUCCESS_TOPIC && l.topics[1]?.toLowerCase() === topicOf(ctx.dep!.module));
-        if (ok) ethClaimed.set(to, want);
+        if (ok) {
+          ethClaimed.set(to, want);
+          ethSent.set(from, sent);
+        }
         return ok;
       }
       const i = receipt.logs.findIndex(

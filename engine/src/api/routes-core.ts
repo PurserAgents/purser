@@ -18,11 +18,11 @@ import {
 } from "../accounts.ts";
 import { decideAsTestOwner, decideWithPasskey, getApproval, listApprovals, prepareDecision, preparePasskeySetup } from "../approvals.ts";
 import { applyTemplateAlerts } from "../alerts.ts";
-import { VERSION } from "../config.ts";
+import { BUILD_COMMIT, BUILD_VERSION } from "../build.ts";
 import type { Ctx } from "../ctx.ts";
 import { requireDep } from "../ctx.ts";
 import { getVerdict, listVerdicts } from "../firewall.ts";
-import { indexOnce, ingestReceipt } from "../indexer.ts";
+import { indexOnce, ingestReceipt, rememberOwners } from "../indexer.ts";
 import { getIntent, listIntents, rejectHeld, releaseHeld, resumeIntent, submitIntent } from "../intents.ts";
 import { createApiKey, issueOwnerSession, listApiKeys, newSignInNonce, revokeApiKey, signInMessage, verifySignIn } from "../keys.ts";
 import { getReceipt, listReceipts } from "../receipts.ts";
@@ -102,7 +102,8 @@ export function coreRoutes(app: Hono, ctx: Ctx) {
         passkey: dep?.passkey ?? null,
         usdg: dep?.usdg ?? null,
       },
-      version: VERSION,
+      version: BUILD_VERSION,
+      build: BUILD_COMMIT,
     };
     return send(c, h);
   });
@@ -220,6 +221,7 @@ export function coreRoutes(app: Hono, ctx: Ctx) {
     await safeOwner(ctx, c, b.safe);
     await indexOnce(ctx).catch(() => 0);
     const owners = (await readAccount(ctx, b.safe)).owners;
+    rememberOwners(ctx, b.safe, owners);
     upsertAccount(ctx, { ...b, owners });
     if (b.template) applyTemplateAlerts(ctx, b.safe, b.template);
     return send(c, await readAccount(ctx, b.safe), 201);

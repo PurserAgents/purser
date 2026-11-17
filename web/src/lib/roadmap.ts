@@ -52,7 +52,7 @@ export const stages: Stage[] = [
     status: "live",
     title: "Purser Shield",
     short: "Shield",
-    summary: "An attack a firewall blocks is refused at once by the account that caught it. Once 3 accounts with a payment record report the same attacker, every account checks for it before it signs.",
+    summary: "An attack a firewall blocks is refused at once by the account that caught it. Once 3 independent accounts with a payment history report the same attacker, every account checks for it before it signs.",
     items: [
       { title: "A shared list", text: "Planted payees, forwarding wallets and the code behind them, hostile spenders and a fingerprint of each injected sentence go on one list once 3 accounts report them. Until then a report protects the account that made it." },
       { title: "Checked before every signature", text: "The payee, every recipient and every spender of a payment are checked against the list before the firewall signs." },
@@ -96,10 +96,10 @@ export const stages: Stage[] = [
     status: "live",
     title: "Models at cost",
     short: "Models",
-    summary: "Every AI model paid per call straight from the agent's own account. No markup, and no prepaid balance held by anyone.",
+    summary: "Every AI model at the provider's price, paid from the agent's own account before each call. No markup.",
     items: [
       { title: "Pay per call", text: "Each model call is paid from the agent's account at the provider's price, through the same rules and firewall." },
-      { title: "No balance with anyone", text: "Nothing sits prepaid at a middleman. The money stays in your Safe until the call is made." },
+      { title: "Paid before the call", text: "A small prepaid credit, topped up from your Safe through its rules. Every call is paid before it runs; what it does not use stays for the next one." },
       { title: "The cheapest model that does the job", text: "Routing picks the lowest price model that meets the bar you set for each task." },
       { title: "Budgets per model", text: "Cap what an agent may spend on each model, per day and per task." },
       { title: "Cost you can see", text: "Cost per task, per model and per agent in accounting, and an open price index of AI tasks." },

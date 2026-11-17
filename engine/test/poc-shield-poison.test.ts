@@ -16,9 +16,9 @@ import { artifact } from "../src/deploy.ts";
 import { indexOnce } from "../src/indexer.ts";
 import { submitIntent } from "../src/intents.ts";
 import { createRecurring } from "../src/recurring.ts";
-import { SHIELD, trusted } from "../src/shield.ts";
+import { reporterGroups, reporters, SHIELD, trusted } from "../src/shield.ts";
 import { listWatchEvents } from "../src/watchdog.ts";
-import { createAccount, makeWorld, randomAddress, usdg, type World } from "./harness.ts";
+import { createAccount, giveStanding, makeWorld, randomAddress, usdg, type World } from "./harness.ts";
 import { api, type Api } from "./util-api.ts";
 
 const ZERO32 = `0x${"0".repeat(64)}` as Hex;
@@ -78,8 +78,8 @@ describe("GHSA-59mh-vw5p-vr3f: Purser Shield cannot be poisoned", () => {
     const elsewhere = await submitIntent(w.ctx, { safe: victim, spec: { kind: "pay", pay: { token: w.dep.usdg, to: drain, amount: usdg(1) } }, category: "transfer", signer: w.agent, dryRun: true });
     assert.equal(elsewhere.verdict.reasons.some((x) => x.code === "shield"), false, "not yet for another account");
 
-    // the reporters get a payment record, then each catches the same attack
-    for (const s of others) assert.equal((await pay(s, randomAddress(), "Pay the data vendor.")).intent.status, "executed");
+    // the reporters get standing (independent owners, $25 paid, a week old), then each catches the same attack
+    for (const s of others) await giveStanding(w, s);
     for (const s of others) await pay(s, drain, planted(drain));
     assert.equal((await e.get(`/v1/shield/address/${drain}`)).body.flagged, true);
     const now = await submitIntent(w.ctx, { safe: victim, spec: { kind: "pay", pay: { token: w.dep.usdg, to: drain, amount: usdg(1) } }, category: "transfer", signer: w.agent, dryRun: true });
@@ -90,6 +90,60 @@ describe("GHSA-59mh-vw5p-vr3f: Purser Shield cannot be poisoned", () => {
     assert.equal((await e.del(`/v1/accounts/${others[1]}/shield/reports/${drain}`)).status, 401);
     assert.equal((await e.del(`/v1/accounts/${others[1]}/shield/reports/${drain}`, owner)).status, 200);
     assert.equal((await e.get(`/v1/shield/address/${drain}`)).body.flagged, false);
+  });
+
+  it("variant: three accounts of one owner, each paying a token amount, cannot list an honest payee for everyone", async () => {
+    const honest = randomAddress();
+    const mine: Address[] = [];
+    for (let i = 0; i < SHIELD.reportersForAll; i++) mine.push(await createAccount(w, { name: `Sock ${i}` }));
+    for (const s of mine) assert.equal((await pay(s, randomAddress(), "Pay the data vendor.")).intent.status, "executed"); // $1 each, today
+    for (const s of mine) await pay(s, honest, planted(honest));
+    assert.equal((await e.get(`/v1/shield/address/${honest}`)).body.flagged, false, "a token payment record is not standing");
+    // even with $25 each and a week of age, one owner's accounts are one group
+    const owner = randomAddress();
+    for (const s of mine) await giveStanding(w, s, owner);
+    for (const s of mine) await pay(s, honest, planted(honest));
+    assert.equal(reporterGroups(w.ctx, honest.toLowerCase()), 1);
+    assert.equal((await e.get(`/v1/shield/address/${honest}`)).body.flagged, false);
+  });
+
+  it("variant: accounts that paid each other, or that paid the address themselves, do not count as independent reporters", async () => {
+    const target = randomAddress();
+    const ring: Address[] = [];
+    for (let i = 0; i < SHIELD.reportersForAll; i++) ring.push(await createAccount(w, { name: `Ring ${i}` }));
+    for (const s of ring) await giveStanding(w, s); // separate owners
+    // funded from one another: the first pays the other two
+    for (const s of ring.slice(1)) assert.equal((await pay(ring[0], s, "Fund the helper.")).intent.status, "executed");
+    for (const s of ring) await pay(s, target, planted(target));
+    assert.equal(reporterGroups(w.ctx, target.toLowerCase()), 1, "one funding ring is one group");
+    assert.equal((await e.get(`/v1/shield/address/${target}`)).body.flagged, false);
+
+    const paidIt = randomAddress();
+    const three: Address[] = [];
+    for (let i = 0; i < SHIELD.reportersForAll; i++) three.push(await createAccount(w, { name: `Payer ${i}` }));
+    for (const s of three) await giveStanding(w, s);
+    assert.equal((await pay(three[0], paidIt, "Pay the usual vendor.")).intent.status, "executed");
+    for (const s of three) await pay(s, paidIt, planted(paidIt));
+    assert.equal(reporters(w.ctx, paidIt.toLowerCase()).length, SHIELD.reportersForAll - 1, "a reporter that paid the address does not count for it");
+    assert.equal((await e.get(`/v1/shield/address/${paidIt}`)).body.flagged, false);
+  });
+
+  it("variant: an owner's own accounts cannot vouch for the attacker's address; independent accounts in good standing can", async () => {
+    const drain = randomAddress();
+    const mine: Address[] = [];
+    for (let i = 0; i < SHIELD.trustedPayers; i++) mine.push(await createAccount(w, { name: `Voucher ${i}` }));
+    const owner = randomAddress();
+    for (const s of mine) await giveStanding(w, s, owner);
+    for (const s of mine) assert.equal((await pay(s, drain, "Pay the vendor.")).intent.status, "executed"); // $1 each
+    assert.equal(trusted(w.ctx, drain), false, "one owner's accounts are one voucher");
+    const indep: Address[] = [];
+    for (let i = 0; i < SHIELD.trustedPayers; i++) indep.push(await createAccount(w, { name: `Customer ${i}` }));
+    const vendor = randomAddress();
+    for (const s of indep) {
+      await giveStanding(w, s);
+      assert.equal((await pay(s, vendor, "Pay the vendor.")).intent.status, "executed");
+    }
+    assert.equal(trusted(w.ctx, vendor), true, "a payee of several independent customers is never flagged");
   });
 
   it("entries that nobody reported for a long time stop counting", async () => {

@@ -1,5 +1,5 @@
 import { decodeEventLog, type Address, type Hex, type Log, type TransactionReceipt } from "viem";
-import { purserEscrowAbi, purserModuleAbi, purserPasskeyAbi, purserRecurringAbi } from "../../packages/sdk/src/abi.ts";
+import { purserEscrowAbi, purserModuleAbi, purserPasskeyAbi, purserRecurringAbi, safeAbi } from "../../packages/sdk/src/abi.ts";
 import { upsertAccount } from "./accounts.ts";
 import { getLogsChunked } from "./chain.ts";
 import { requireDep, type Ctx } from "./ctx.ts";
@@ -99,10 +99,18 @@ export async function ingestLogs(ctx: Ctx, logs: Log[], ts?: number, receipt?: T
     // every log is handled once, whether it arrives with the engine's own transaction or from the poller
     if (!ctx.db.prepare("INSERT OR IGNORE INTO seen_logs (uniq) VALUES (?)").run(uniq).changes) continue;
     switch (d.ev.eventName) {
-      case "AccountInitialized":
-        upsertAccount(ctx, { safe: safe!, agent: a.agent as string });
+      case "AccountInitialized": {
+        // the owners when the account is first seen: Purser Shield groups accounts by owner, so later owner changes
+        // cannot make one owner's accounts look independent
+        const owners = ((await ctx.chain.pub.readContract({ address: safe as Address, abi: safeAbi, functionName: "getOwners" }).catch(() => [])) as string[]).map(lower);
+        const row = upsertAccount(ctx, { safe: safe!, agent: a.agent as string });
+        if (owners.length) {
+          rememberOwners(ctx, safe!, owners);
+          if (!JSON.parse(row.owners || "[]").length) upsertAccount(ctx, { safe: safe!, owners });
+        }
         ctx.bus.emit("account", safe, { event: "initialized", safe });
         break;
+      }
       case "AgentIdSet":
         upsertAccount(ctx, { safe: safe!, agentId: (a.agentId as bigint).toString() });
         break;
@@ -286,16 +294,25 @@ export async function ingestLogs(ctx: Ctx, logs: Log[], ts?: number, receipt?: T
   await Promise.all(listeners);
 }
 
+/** Every owner an account was ever seen with (Purser Shield groups accounts by owner). */
+export function rememberOwners(ctx: Ctx, safe: string, owners: string[]) {
+  const key = `owners_seen:${lower(safe)}`;
+  const known = JSON.parse(kvGet(ctx.db, key) ?? "[]") as string[];
+  kvSet(ctx.db, key, JSON.stringify([...new Set([...known, ...owners.map(lower)])]));
+}
+
 /** A Paid event emitted through PurserRecurring has no intent row: tell streams from subscriptions by event order. */
 function recurringCategory(ctx: Ctx, tx: string, fallback: "transfer") {
   const s = ctx.db.prepare("SELECT value FROM kv WHERE key = ?").get(`txcat:${tx}`) as { value: string } | undefined;
   return (s?.value ?? fallback) as never;
 }
 
-/** When one Purser account pays another, the payee gets an incoming receipt too. */
+/** When one Purser account pays another, the payee gets an incoming receipt too (only for listed tokens). */
 function mirrorIncoming(ctx: Ctx, args: { uniq: string; payer: string; payee: string; token: string; amount: bigint; tx: string; when: number; category: string; meta: Record<string, unknown> }) {
   const isAccount = ctx.db.prepare("SELECT 1 FROM accounts WHERE safe = ?").get(lower(args.payee));
   if (!isAccount) return;
+  // a token Purser does not list writes nothing into another account's books
+  if (!ctx.tokens.listed(args.token)) return;
   const ref = String(args.meta.serviceRef ?? "");
   const category = args.category === "internal" ? "internal" : ref.includes("/v1/store/") ? "storefront" : args.category === "x402" ? "x402" : "transfer";
   const svc = ref.includes("/v1/store/") ? ref.split("/v1/store/")[1].split(/[/?]/)[0] : null;

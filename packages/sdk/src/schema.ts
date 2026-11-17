@@ -632,7 +632,10 @@ export interface Health {
   block: string | null;
   broadcast: boolean;
   contracts: Record<string, Address | null>;
+  /** "0.1.0+<short commit>" */
   version: string;
+  /** the full commit the engine was built from, or null when unknown */
+  build?: string | null;
 }
 
 export type EngineEventType =

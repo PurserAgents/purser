@@ -50,17 +50,42 @@ for (const [net, bits] of [
 ] as const)
   blocked.addSubnet(net, bits, "ipv6");
 
-/** IPv4 written inside IPv6 (mapped ::ffff:a.b.c.d, compatible ::a.b.c.d, NAT64 64:ff9b::/96) is checked as IPv4. */
-function embeddedV4(addr: string): string | null {
-  const a = addr.toLowerCase();
-  const m = a.match(/^(?:::ffff:|::|64:ff9b::)(\d+\.\d+\.\d+\.\d+)$/);
-  if (m) return m[1];
-  const h = a.match(/^(?:::ffff:|64:ff9b::)([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (h) {
-    const hi = parseInt(h[1], 16);
-    const lo = parseInt(h[2], 16);
-    return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+/** The eight 16-bit groups of an IPv6 address (with a dotted IPv4 tail allowed), or null when it is not one. */
+function hextets(addr: string): number[] | null {
+  let a = addr.toLowerCase();
+  const dotted = a.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) {
+    const o = dotted[2].split(".").map(Number);
+    if (o.some((x) => x > 255)) return null;
+    a = `${dotted[1]}${((o[0] << 8) | o[1]).toString(16)}:${((o[2] << 8) | o[3]).toString(16)}`;
   }
+  const halves = a.split("::");
+  if (halves.length > 2) return null;
+  const part = (h: string) => (h ? h.split(":").map((x) => parseInt(x, 16)) : []);
+  const head = part(halves[0]);
+  const tail = halves.length === 2 ? part(halves[1]) : [];
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  const all = [...head, ...Array(fill).fill(0), ...tail];
+  return all.length === 8 && all.every((x) => Number.isInteger(x) && x >= 0 && x <= 0xffff) ? all : null;
+}
+
+const v4of = (hi: number, lo: number) => `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+
+/**
+ * The IPv4 address an IPv6 address carries, checked as IPv4: mapped (::ffff:0:0/96), compatible (::/96), NAT64
+ * (64:ff9b::/96) and 6to4 (2002::/16). Returns "refuse" for forms that carry an address we do not decode the same
+ * way everywhere (Teredo 2001::/32, local NAT64 64:ff9b:1::/48), and null for plain IPv6.
+ */
+function embeddedV4(addr: string): string | "refuse" | null {
+  const h = hextets(addr);
+  if (!h) return "refuse";
+  const zero = (from: number, to: number) => h.slice(from, to).every((x) => x === 0);
+  if (zero(0, 5) && h[5] === 0xffff) return v4of(h[6], h[7]); // ::ffff:a.b.c.d
+  if (zero(0, 6)) return h[6] === 0 && h[7] <= 1 ? null : v4of(h[6], h[7]); // ::a.b.c.d (:: and ::1 are checked as IPv6)
+  if (h[0] === 0x64 && h[1] === 0xff9b && zero(2, 6)) return v4of(h[6], h[7]); // 64:ff9b::a.b.c.d
+  if (h[0] === 0x64 && h[1] === 0xff9b && h[2] === 1) return "refuse"; // 64:ff9b:1::/48
+  if (h[0] === 0x2002) return v4of(h[1], h[2]); // 6to4
+  if (h[0] === 0x2001 && h[1] === 0) return "refuse"; // Teredo
   return null;
 }
 
@@ -71,6 +96,7 @@ export function isPrivateAddress(addr: string): boolean {
   if (fam === 4) return blocked.check(ip, "ipv4");
   if (fam === 6) {
     const v4 = embeddedV4(ip);
+    if (v4 === "refuse") return true;
     if (v4) return blocked.check(v4, "ipv4");
     return blocked.check(ip, "ipv6");
   }

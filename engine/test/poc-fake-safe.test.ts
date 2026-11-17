@@ -13,7 +13,7 @@ import { Hono } from "hono";
 import { createWalletClient, encodeDeployData, encodeFunctionData, http, pad, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { purserModuleAbi } from "../../packages/sdk/src/abi.ts";
-import { payTypedData, randomNonce } from "../../packages/sdk/src/eip712.ts";
+import { packSignatures, payDigest, payTypedData, randomNonce } from "../../packages/sdk/src/eip712.ts";
 import { encodeHeader, HEADER_SIGNATURE } from "../../packages/sdk/src/x402.ts";
 import { configToChain, readChainAccount, ruleToChain } from "../src/accounts.ts";
 import { artifact } from "../src/deploy.ts";
@@ -166,12 +166,17 @@ describe("GHSA-ch98-775j-jhhv: a contract that is not a Safe is not a Purser acc
     for (const [token, amount] of [[w.dep.usdg, usdg(5)], ["0x0000000000000000000000000000000000000000", 10n ** 15n]] as const) {
       const intent = { safe, token, to: payee, amount, service: ZERO32, nonce: randomNonce(), deadline: block.timestamp + 600n };
       const signature = await w.agent.signTypedData(payTypedData(w.ctx.cfg.chainId, w.dep.module, intent));
+      // through the engine: the Safe is checked fresh right before the relay, so nothing is sent
       const r = await e.post("/v1/intents", { kind: "pay", safe, pay: { token, to: payee, amount: amount.toString() }, nonce: intent.nonce.toString(), deadline: intent.deadline.toString(), signature });
-      assert.equal(r.body.intent.status, "failed", JSON.stringify(r.body));
-      assert.match(r.body.intent.error, /no money reached the payee/);
-      assert.ok(r.body.intent.txHash, "the transaction was mined and emitted Paid");
-      const logs = (await w.ctx.chain.pub.getTransactionReceipt({ hash: r.body.intent.txHash })).logs;
-      assert.ok(logs.some((l) => l.address.toLowerCase() === w.dep.module.toLowerCase()), "the module emitted its events");
+      // the first time the fresh check right before the relay refuses it; from then on the account is known as no Safe
+      assert.ok(["failed", "blocked"].includes(r.body.intent.status), JSON.stringify(r.body));
+      assert.match(r.body.intent.error, /not a Purser Safe|not a Purser account/);
+      assert.equal(r.body.intent.txHash, null, "nothing was sent");
+      // sent by anyone else, straight to the module: Paid on chain, and the indexer still books nothing
+      const fw = await w.ctx.chain.accounts.firewall!.sign({ hash: payDigest(w.ctx.cfg.chainId, w.dep.module, intent) });
+      const direct = await send(w.dep.module, encodeFunctionData({ abi: purserModuleAbi, functionName: "pay", args: [intent, packSignatures(signature, fw)] }));
+      assert.equal(direct.status, "success");
+      assert.ok(direct.logs.some((l) => l.address.toLowerCase() === w.dep.module.toLowerCase()), "the module emitted Paid");
     }
     assert.equal(await usdgBalance(w, payee), 0n);
     assert.equal(await w.ctx.chain.pub.getBalance({ address: payee }), 0n);

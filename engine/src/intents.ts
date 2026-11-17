@@ -21,7 +21,7 @@ import { chainNow, requireDep, type Ctx } from "./ctx.ts";
 import { evaluate } from "./firewall.ts";
 import { ingestReceipt, UNPROVEN } from "./indexer.ts";
 import { checkPolicy, type Spend } from "./policy.ts";
-import { paymentProven } from "./proof.ts";
+import { checkSafe, paymentProven } from "./proof.ts";
 import { getIntentRow, intentFromRow, receiptFromRow, setIntent, type IntentRow, type ReceiptRow } from "./receipts.ts";
 import { fail, fmt, id, json, lower, now, parseJson, sameAddress, ZERO } from "./util.ts";
 
@@ -238,10 +238,16 @@ async function relay(ctx: Ctx, iid: string, verdict: Verdict): Promise<PayResult
     const intent = setIntent(ctx, iid, { status: "ready" })!;
     return { intent, verdict, receipt: null };
   }
+  // the account is checked fresh right before every relayed transaction, never from the cache
+  const before = await checkSafe(ctx, row.safe, { fresh: true }).catch(() => null);
+  if (!before?.ok) {
+    const intent = setIntent(ctx, iid, { status: "failed", error: before ? "This address is not a Purser Safe." : "The account could not be checked. Nothing was sent." })!;
+    return { intent, verdict, receipt: null };
+  }
   setIntent(ctx, iid, { status: "submitted" });
   let receipt;
   try {
-    receipt = await ctx.chain.send(ctx.chain.accounts.relayer, { to: dep.module, data: txData(b, row.sigs as Hex) });
+    receipt = await ctx.chain.send(ctx.chain.accounts.relayer, { to: dep.module, data: txData(b, row.sigs as Hex), account: row.safe });
   } catch (e) {
     const intent = setIntent(ctx, iid, { status: "failed", error: explainRevert(e) })!;
     await ctx.audit.append("engine", "intent.failed", row.safe, { intent: iid, error: intent.error });
@@ -261,7 +267,10 @@ async function relay(ctx: Ctx, iid: string, verdict: Verdict): Promise<PayResult
   });
   await ingestReceipt(ctx, receipt);
   // a successful transaction is not a payment: the money must be seen reaching the payee
-  if (!queued && b.kind === "pay" && !(await paymentProven(ctx, receipt, { payer: b.intent.safe, token: b.intent.token, to: b.intent.to, amount: b.intent.amount }))) {
+  // and right after: a Safe re-pointed between the two checks has its payment refused
+  const proven =
+    queued || b.kind !== "pay" || ((await checkSafe(ctx, row.safe, { fresh: true }).catch(() => null))?.ok === true && (await paymentProven(ctx, receipt, { payer: b.intent.safe, token: b.intent.token, to: b.intent.to, amount: b.intent.amount })));
+  if (!proven) {
     const intent = setIntent(ctx, iid, { status: "failed", error: UNPROVEN, tx_hash: lower(receipt.transactionHash) })!;
     await ctx.audit.append("engine", "intent.unproven", row.safe, { intent: iid, tx: receipt.transactionHash });
     return { intent, verdict, receipt: null };
