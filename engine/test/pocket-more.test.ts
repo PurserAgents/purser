@@ -85,10 +85,10 @@ describe("pocket: Face ID checked by the engine, details, quiet hours and the we
     assert.equal(c.status, 200, JSON.stringify(c.body));
     return c.body as { token: string; deviceId: string };
   };
-  /** A payment Purser Shield holds on `other` (warn mode) to an address caught attacking `safe`. */
+  /** A payment Purser Shield holds on `other` (warn mode) to an address its own firewall caught in an earlier attack. */
   const hold = async (amount = 3) => {
     const attacker = randomAddress();
-    await pay(safe, attacker, usdg(5), planted(attacker));
+    await pay(other, attacker, usdg(5), planted(attacker));
     const held = await pay(other, attacker, usdg(amount), "Pay the research vendor for the weekly brief.");
     assert.equal(held.intent.status, "held", held.intent.error ?? "");
     return { id: held.intent.id, attacker };

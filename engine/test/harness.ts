@@ -13,6 +13,8 @@ import { indexOnce } from "../src/indexer.ts";
 import { ZERO } from "../src/util.ts";
 
 process.env.PURSER_LOG = "0";
+// the tests run their stand-in services on this machine; the engine refuses private hosts unless told otherwise
+process.env.PURSER_FETCH_PRIVATE = "1";
 
 export async function freePort(): Promise<number> {
   return new Promise((res) => {

@@ -30,6 +30,7 @@ import { chainNow, requireDep, type Ctx } from "./ctx.ts";
 import { kvGet, kvSet } from "./db.ts";
 import { registerTask } from "./engine.ts";
 import { ingestReceipt } from "./indexer.ts";
+import { guardedFetch } from "./netguard.ts";
 import { rejectHeld, releaseHeld } from "./intents.ts";
 import { getIntentRow, intentFromRow, listReceipts, receiptFromRow, type IntentRow, type ReceiptRow } from "./receipts.ts";
 import { fail, id, lower, now, parseJson, sameAddress, usd } from "./util.ts";
@@ -273,7 +274,7 @@ export function waitingCount(ctx: Ctx, ownerAddr: string): number {
 async function pushTo(ctx: Ctx, sub: { endpoint: string; p256dh: string; auth: string }, note: PushNote, badge: number): Promise<number | null> {
   const body = encryptPush(Buffer.from(JSON.stringify({ title: note.title, body: note.body, url: note.url, tag: note.tag ?? null, badge })), sub.p256dh, sub.auth);
   try {
-    const res = await fetch(sub.endpoint, {
+    const res = await guardedFetch(ctx, sub.endpoint, {
       method: "POST",
       headers: {
         "content-type": "application/octet-stream",
@@ -284,7 +285,8 @@ async function pushTo(ctx: Ctx, sub: { endpoint: string; p256dh: string; auth: s
         authorization: `vapid t=${vapidJwt(ctx, sub.endpoint)}, k=${vapid(ctx).publicKey}`,
       },
       body,
-      signal: AbortSignal.timeout(8000),
+      timeoutMs: 8000,
+      maxBytes: 64_000,
     });
     if (res.status === 404 || res.status === 410) ctx.db.prepare("DELETE FROM pocket_push WHERE endpoint = ?").run(sub.endpoint);
     return res.status;

@@ -14,7 +14,7 @@ import {
 import { readChainAccount, readRule } from "./accounts.ts";
 import { body, send } from "./api/http.ts";
 import { registerRoutes } from "./api/registry.ts";
-import { explainRevert } from "./chain.ts";
+import { explainRevert, GAS_LIMITS } from "./chain.ts";
 import { chainNow, requireDep, type Ctx } from "./ctx.ts";
 import { simulate } from "./firewall.ts";
 import { ingestReceipt, tagRef } from "./indexer.ts";
@@ -25,6 +25,9 @@ import { id, lower, now, sameAddress, ZERO } from "./util.ts";
 export const network = (ctx: Ctx) => `eip155:${ctx.cfg.chainId}`;
 
 const invalid = (reason: string, payer?: Address): VerifyResponse => ({ isValid: false, invalidReason: reason, ...(payer ? { payer } : {}) });
+
+/** The assets this facilitator settles (what /x402/supported lists). Anything else is refused before any read or send. */
+export const settleableAssets = (ctx: Ctx): Address[] => (ctx.dep ? [ctx.dep.usdg, ZERO] : []);
 
 async function isPurserAccount(ctx: Ctx, who: Address): Promise<boolean> {
   try {
@@ -68,6 +71,8 @@ export async function verifyPayment(ctx: Ctx, payment: PaymentPayload, req: Paym
   if (req.network !== network(ctx)) return invalid("invalid_network");
   if (payment.accepted && (payment.accepted.network !== req.network || !sameAddress(payment.accepted.payTo, req.payTo) || !sameAddress(payment.accepted.asset, req.asset)))
     return invalid("invalid_payment_requirements");
+  // a caller-named contract is never read or called: only the listed assets
+  if (!settleableAssets(ctx).some((a) => sameAddress(a, req.asset))) return invalid("unsupported_asset");
 
   if (isPurserPayload(payment.payload)) {
     const p = payment.payload.purser;
@@ -164,7 +169,8 @@ export async function settlePayment(ctx: Ctx, payment: PaymentPayload, req: Paym
   }
   const tx = await settlementTx(ctx, p, req, ref);
   try {
-    const r = await ctx.chain.send(relayer, { to: tx.to, data: tx.data });
+    // a settlement has a small fixed shape: it gets a small gas limit, and a stranger's settlement only the open share
+    const r = await ctx.chain.send(relayer, { to: tx.to, data: tx.data, maxGas: tx.viaModule ? GAS_LIMITS.settlementWithSplits : GAS_LIMITS.settlement, open: true });
     if (r.status !== "success") throw new Error("reverted");
     await ingestReceipt(ctx, r);
     if (!(await paymentProven(ctx, r, { payer: a.from, token: req.asset, to: req.payTo, amount: BigInt(a.value) }))) throw new Error("no transfer to the payee in the settlement");
@@ -218,7 +224,7 @@ const hostOf = (u: string) => {
 
 export function supported(ctx: Ctx) {
   return {
-    kinds: [{ x402Version: 2, scheme: "exact", network: network(ctx), extra: { assets: ctx.dep ? [ctx.dep.usdg, ZERO] : [], purserIntents: true } }],
+    kinds: [{ x402Version: 2, scheme: "exact", network: network(ctx), extra: { assets: settleableAssets(ctx), purserIntents: true } }],
     extensions: [],
     signers: { "eip155:*": ctx.chain.accounts.relayer ? [ctx.chain.accounts.relayer.address] : [] },
   };

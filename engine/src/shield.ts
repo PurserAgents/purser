@@ -18,18 +18,28 @@ import { react } from "./watchdog.ts";
 // of injected instructions. Only the attacker's side is stored: addresses and one-way fingerprints. Never a balance,
 // an owner, an amount, or what the account paid for, and the public feed counts accounts without naming them.
 //
-// Poisoning guard: an attacker could plant a well-known service's address in a page to get it flagged. So an address
-// is never flagged when it is a Purser contract or account, on any owner's list, or already paid by several accounts.
-// An owner who put a flagged address on their own list gets a warning instead of a block.
+// Poisoning guard: an attacker could plant a well-known service's address in a page to get it flagged. So:
+// - only a block on a real account, signed by its own agent key, reports anything (never a request that fails as
+//   "not an account" or "wrong agent key");
+// - an entry protects only the account that reported it until several accounts with a payment record reported it;
+//   then it protects every account. Entries not seen again for a while stop counting, and an owner can take back
+//   their account's report;
+// - an address is never flagged when it is a Purser contract or account, on the reporting account's own list, or
+//   already paid by several accounts. An owner who put a flagged address on their own list gets a warning instead.
 //
 // Each account chooses what a match does: "block" (the default) refuses the payment; "warn" holds it until the owner
 // releases or rejects it. Scheduled payouts never wait: a match always stops them, and accounts with a subscription or
-// stream to a newly flagged payee get a watchdog event that freezes them where auto-freeze is on.
+// stream to a newly flagged payee are told (never frozen because of a list entry).
 
 export const SHIELD = {
   trustedPayers: 3, // an address that this many accounts already paid successfully is never flagged
+  reportersForAll: 3, // an entry protects every account once this many accounts with a payment record reported it
+  ttlDays: 30, // an entry no account reported for this long stops counting
   minSentence: 24, // shorter sentences are too generic to fingerprint
 };
+
+/** Block reasons that mean the request did not come from a real account's own agent: such a block reports nothing. */
+export const NOT_GENUINE = new Set(["not_account", "wrong_agent_key", "bad_cosign", "firewall_key", "no_simulation"]);
 
 type ThreatKind = ShieldThreat["kind"];
 
@@ -95,23 +105,48 @@ export function sentencePrints(text: string | null | undefined): { sentence: str
 
 // ---------------------------------------------------------------------------------------------------- the list
 
-/** Addresses the Shield never flags: Purser itself, accounts, addresses on an owner's list, payees with a record. */
+/**
+ * Addresses the Shield never flags: Purser itself, accounts (rows exist only for real Safes), payees several accounts
+ * paid. One owner's list does not protect an address for everyone; it only means that owner is warned, not blocked.
+ */
 export function trusted(ctx: Ctx, address: string): boolean {
   const a = lower(address);
   const dep = ctx.dep;
   if (dep && [dep.module, dep.factory, dep.recurring, dep.escrow, dep.passkey, dep.feeRecipient, dep.usdg, dep.weth].some((x) => x && sameAddress(x, a))) return true;
   if (ctx.db.prepare("SELECT 1 FROM accounts WHERE safe = ? LIMIT 1").get(a)) return true;
-  if (ctx.db.prepare("SELECT 1 FROM account_sets WHERE kind IN ('allow','vault') AND lower(value) = ? AND on_flag = 1 LIMIT 1").get(a)) return true;
-  const payers = ctx.db.prepare("SELECT COUNT(DISTINCT safe) AS n FROM receipts WHERE counterparty = ? AND direction = 'out' AND status = 'executed'").get(a) as { n: number };
+  const payers = ctx.db.prepare("SELECT COUNT(DISTINCT r.safe) AS n FROM receipts r JOIN accounts a ON a.safe = r.safe WHERE r.counterparty = ? AND r.direction = 'out' AND r.status = 'executed'").get(a) as { n: number };
   return payers.n >= SHIELD.trustedPayers;
 }
 
-export function threatAt(ctx: Ctx, address: string): ThreatRow | null {
-  return (ctx.db.prepare("SELECT address, kind, hits, first_seen, last_seen FROM shield_threats WHERE address = ? AND active = 1").get(lower(address)) as ThreatRow | undefined) ?? null;
+const freshSince = () => Math.floor(Date.now() / 1000) - SHIELD.ttlDays * 86400;
+
+/** Accounts that reported an item and have a payment record of their own. */
+export function reporters(ctx: Ctx, item: string): string[] {
+  return (
+    ctx.db
+      .prepare(
+        `SELECT DISTINCT h.safe FROM shield_hits h JOIN accounts a ON a.safe = h.safe
+         WHERE h.item = ? AND h.created_at >= ? AND EXISTS (SELECT 1 FROM receipts r WHERE r.safe = h.safe AND r.direction = 'out' AND r.status = 'executed')`,
+      )
+      .all(item, freshSince()) as { safe: string }[]
+  ).map((r) => r.safe);
 }
 
-function printAt(ctx: Ctx, print: string): PrintRow | null {
-  return (ctx.db.prepare("SELECT print, why, hits, first_seen, last_seen FROM shield_prints WHERE print = ? AND active = 1").get(print) as PrintRow | undefined) ?? null;
+/** Does this entry count for every account (null: the public view) or for this one account? */
+function counts(ctx: Ctx, item: string, safe: string | null): boolean {
+  if (reporters(ctx, item).length >= SHIELD.reportersForAll) return true;
+  return !!safe && !!ctx.db.prepare("SELECT 1 FROM shield_hits WHERE item = ? AND safe = ? AND created_at >= ? LIMIT 1").get(item, lower(safe), freshSince());
+}
+
+/** The list entry for an address as it applies to `safe` (null: only entries that protect every account). */
+export function threatAt(ctx: Ctx, address: string, safe: string | null = null): ThreatRow | null {
+  const r = ctx.db.prepare("SELECT address, kind, hits, first_seen, last_seen FROM shield_threats WHERE address = ? AND active = 1 AND last_seen >= ?").get(lower(address), freshSince()) as ThreatRow | undefined;
+  return r && counts(ctx, r.address, safe) ? r : null;
+}
+
+function printAt(ctx: Ctx, print: string, safe: string | null = null): PrintRow | null {
+  const r = ctx.db.prepare("SELECT print, why, hits, first_seen, last_seen FROM shield_prints WHERE print = ? AND active = 1 AND last_seen >= ?").get(print, freshSince()) as PrintRow | undefined;
+  return r && counts(ctx, r.print, safe) ? r : null;
 }
 
 export function shieldMode(ctx: Ctx, safe: string): ShieldMode {
@@ -153,35 +188,36 @@ export function shieldCheck(ctx: Ctx, input: { safe: string; addresses: string[]
     const a = lower(x);
     if (!/^0x[0-9a-f]{40}$/.test(a) || seen.has(a)) continue;
     seen.add(a);
-    const t = threatAt(ctx, a);
+    const t = threatAt(ctx, a, input.safe);
     if (!t) continue;
     hit(a, "Flagged by Purser Shield", `${a} is on the Purser Shield list as ${KIND_WORDS[t.kind]}. ${caughtWhere(ctx, a, t.hits, input.safe)}`, own.some((o) => sameAddress(o, a)));
   }
   for (const s of sentencePrints(input.trigger)) {
-    const p = printAt(ctx, s.print);
+    const p = printAt(ctx, s.print, input.safe);
     if (!p) continue;
     hit(s.print, "A known injected instruction", `What the agent read contains a sentence on the Purser Shield list (it ${p.why}): "${s.sentence.slice(0, 160)}". ${caughtWhere(ctx, s.print, p.hits, input.safe)}`, false);
   }
   return out;
 }
 
-/** Puts the attacker's side of a blocked verdict on the list. Returns the addresses that are newly flagged. */
+/**
+ * Puts the attacker's side of a blocked verdict on the list, as this account's report. Returns the addresses that
+ * now protect every account and did not before (so schedules to them can be looked at).
+ */
 export function recordThreats(ctx: Ctx, safe: string, verdictId: string, candidates: ThreatCandidate[], prints: { print: string; why: string }[], t: number): string[] {
   const fresh: string[] = [];
   const seen = new Set<string>();
+  const own = setsOf(ctx, safe, "allow");
   for (const c of candidates) {
     const a = lower(c.address);
-    if (seen.has(a) || !/^0x[0-9a-f]{40}$/.test(a) || trusted(ctx, a)) continue;
+    if (seen.has(a) || !/^0x[0-9a-f]{40}$/.test(a) || trusted(ctx, a) || own.some((o) => sameAddress(o, a))) continue;
     seen.add(a);
+    const wasForAll = !!threatAt(ctx, a);
     const prev = ctx.db.prepare("SELECT active FROM shield_threats WHERE address = ?").get(a) as { active: number } | undefined;
-    if (prev) {
-      ctx.db.prepare("UPDATE shield_threats SET hits = hits + 1, last_seen = ?, active = 1 WHERE address = ?").run(t, a);
-      if (!prev.active) fresh.push(a);
-    } else {
-      ctx.db.prepare("INSERT INTO shield_threats (address, kind, hits, first_seen, last_seen, first_verdict, active) VALUES (?, ?, 1, ?, ?, ?, 1)").run(a, c.kind, t, t, verdictId);
-      fresh.push(a);
-    }
+    if (prev) ctx.db.prepare("UPDATE shield_threats SET hits = hits + 1, last_seen = ?, active = 1 WHERE address = ?").run(t, a);
+    else ctx.db.prepare("INSERT INTO shield_threats (address, kind, hits, first_seen, last_seen, first_verdict, active) VALUES (?, ?, 1, ?, ?, ?, 1)").run(a, c.kind, t, t, verdictId);
     ctx.db.prepare("INSERT INTO shield_hits (item, safe, verdict_id, created_at) VALUES (?, ?, ?, ?)").run(a, lower(safe), verdictId, t);
+    if (!wasForAll && threatAt(ctx, a)) fresh.push(a);
   }
   const seenPrints = new Set<string>();
   for (const p of prints) {
@@ -201,10 +237,9 @@ export function recordShieldStop(ctx: Ctx, safe: string, verdictId: string, item
 }
 
 /**
- * A newly flagged address may already be paid on a schedule. Every account with an active subscription or a running
- * stream to it gets a watchdog event that freezes it where auto-freeze is on, because a frozen account cannot be
- * charged on chain. The engine's own payouts to it stop anyway: every payout passes the firewall, and a match on a
- * scheduled payout always stops it.
+ * An address that now protects every account may already be paid on a schedule. Every account with an active
+ * subscription or a running stream to it is told. The engine's payouts to it stop: every payout passes the firewall,
+ * and a match on a scheduled payout always stops it. A list entry never freezes an account; the owner decides.
  */
 export async function protectSchedules(ctx: Ctx, address: string) {
   const a = lower(address);
@@ -221,8 +256,8 @@ export async function protectSchedules(ctx: Ctx, address: string) {
         kind: "shield",
         severity: "critical",
         title: "A payee you pay on a schedule was flagged by Purser Shield",
-        detail: `This account has ${what} paying ${a}, which another agent's firewall just caught in an attack. Purser stops every payout to it.`,
-        freeze: true,
+        detail: `This account has ${what} paying ${a}, which other agents' firewalls caught in attacks. Purser stops the scheduled payouts to it; nothing else changes until you look.`,
+        freeze: false,
       },
     ]).catch(() => undefined);
   }
@@ -275,8 +310,8 @@ const printView = (ctx: Ctx, r: PrintRow): ShieldPrint => ({
 export function shieldStats(ctx: Ctx): ShieldStats {
   const one = (sql: string) => (ctx.db.prepare(sql).get() as { n: number | null }).n ?? 0;
   return {
-    addresses: one("SELECT COUNT(*) AS n FROM shield_threats WHERE active = 1"),
-    prints: one("SELECT COUNT(*) AS n FROM shield_prints WHERE active = 1"),
+    addresses: forAll(ctx, "threats").length,
+    prints: forAll(ctx, "prints").length,
     attacksCaught: one("SELECT COUNT(*) AS n FROM verdicts WHERE decision = 'block'"),
     stoppedByShield: one("SELECT COUNT(DISTINCT verdict_id) AS n FROM shield_blocks"),
     accountsProtected: one("SELECT COUNT(*) AS n FROM accounts"),
@@ -284,10 +319,32 @@ export function shieldStats(ctx: Ctx): ShieldStats {
   };
 }
 
+/** Entries that protect every account (the public list); one account's own report is not shown. */
+function forAll(ctx: Ctx, which: "threats"): ThreatRow[];
+function forAll(ctx: Ctx, which: "prints"): PrintRow[];
+function forAll(ctx: Ctx, which: "threats" | "prints"): (ThreatRow | PrintRow)[] {
+  const rows =
+    which === "threats"
+      ? (ctx.db.prepare("SELECT address, kind, hits, first_seen, last_seen FROM shield_threats WHERE active = 1 AND last_seen >= ? ORDER BY last_seen DESC").all(freshSince()) as ThreatRow[])
+      : (ctx.db.prepare("SELECT print, why, hits, first_seen, last_seen FROM shield_prints WHERE active = 1 AND last_seen >= ? ORDER BY last_seen DESC").all(freshSince()) as PrintRow[]);
+  return rows.filter((r) => reporters(ctx, "address" in r ? r.address : r.print).length >= SHIELD.reportersForAll);
+}
+
 export function shieldFeed(ctx: Ctx, limit = 50) {
-  const threats = (ctx.db.prepare("SELECT address, kind, hits, first_seen, last_seen FROM shield_threats WHERE active = 1 ORDER BY last_seen DESC LIMIT ?").all(limit) as ThreatRow[]).map((r) => threatView(ctx, r));
-  const prints = (ctx.db.prepare("SELECT print, why, hits, first_seen, last_seen FROM shield_prints WHERE active = 1 ORDER BY last_seen DESC LIMIT ?").all(limit) as PrintRow[]).map((r) => printView(ctx, r));
+  const threats = forAll(ctx, "threats").slice(0, limit).map((r) => threatView(ctx, r));
+  const prints = forAll(ctx, "prints").slice(0, limit).map((r) => printView(ctx, r));
   return { threats, prints };
+}
+
+/** The owner takes back this account's report of an address or a fingerprint. An entry nobody reports any more ends. */
+export function withdrawReport(ctx: Ctx, safe: string, item: string): boolean {
+  const it = item.toLowerCase();
+  const n = ctx.db.prepare("DELETE FROM shield_hits WHERE item = ? AND safe = ?").run(it, lower(safe)).changes;
+  if (!ctx.db.prepare("SELECT 1 FROM shield_hits WHERE item = ? LIMIT 1").get(it)) {
+    ctx.db.prepare("UPDATE shield_threats SET active = 0 WHERE address = ?").run(it);
+    ctx.db.prepare("UPDATE shield_prints SET active = 0 WHERE print = ?").run(it);
+  }
+  return n > 0;
 }
 
 registerRoutes((app: Hono, ctx: Ctx) => {
@@ -311,6 +368,15 @@ registerRoutes((app: Hono, ctx: Ctx) => {
         return { id: h.id, summary: h.summary, to: h.to, createdAt: h.createdAt, why: reason?.detail ?? null };
       }),
     });
+  });
+  app.delete("/v1/accounts/:safe/shield/reports/:item", async (c) => {
+    const safe = safeParam(c);
+    await safeOwner(ctx, c, safe);
+    const item = c.req.param("item");
+    if (!/^(0x[0-9a-fA-F]{40}|[0-9a-f]{24})$/.test(item)) fail(400, "bad_item", "An address or a fingerprint.");
+    if (!withdrawReport(ctx, safe, item)) fail(404, "not_found", "This account has not reported that.");
+    await ctx.audit.append(`owner:${safe}`, "shield.withdrawn", safe, { item: item.toLowerCase() });
+    return send(c, { ok: true });
   });
   app.patch("/v1/accounts/:safe/shield", async (c) => {
     const safe = safeParam(c);

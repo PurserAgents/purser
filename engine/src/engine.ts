@@ -26,7 +26,7 @@ export function registerTask(t: Task) {
 
 export function createEngine(cfg: Config): Engine {
   const db = openDb(cfg.dbPath);
-  const chain = makeChain(cfg);
+  const chain = makeChain(cfg, { get: (k) => kvGet(db, k), set: (k, v) => kvSet(db, k, v) });
   let auditKey = cfg.keys?.audit;
   if (!auditKey) {
     auditKey = (kvGet(db, "audit_key") as Hex | null) ?? generatePrivateKey();

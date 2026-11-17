@@ -42,7 +42,20 @@ export function isLocalRpc(urls: string[]): boolean {
   });
 }
 
-export function makeChain(cfg: Config) {
+/** Where the day's gas spend is kept, so a restart does not reset it (the engine passes its database). */
+export interface GasStore {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+}
+
+/** The most gas one relayed transaction may use, by kind. A transaction whose estimate is above it is not sent. */
+export const GAS_LIMITS = { default: 2_000_000n, settlement: 250_000n, settlementWithSplits: 1_000_000n } as const;
+
+export class GasRefused extends Error {
+  code = "gas_refused";
+}
+
+export function makeChain(cfg: Config, store?: GasStore) {
   const chain = defineChain({
     id: cfg.chainId,
     name: "Robinhood Chain",
@@ -57,7 +70,19 @@ export function makeChain(cfg: Config) {
   const broadcast = (local && process.env.PURSER_BROADCAST !== "0" && !!cfg.keys) || live;
   // A hard cap on what each engine key may spend on gas per UTC day, so nobody can drain the keys by flooding the API.
   const capWei = BigInt(process.env.PURSER_GAS_DAY_WEI ?? "3000000000000000"); // 0.003 ETH per key per day
-  const spent = new Map<string, { day: string; wei: bigint }>();
+  // Facilitator settlements for payers who are not accounts ("open") may use only this share of a key's day, so a
+  // stranger can never use up the gas that accounts' own payments need.
+  const openPct = BigInt(Math.min(100, Math.max(0, Number(process.env.PURSER_GAS_OPEN_PCT ?? "30"))));
+  const enforce = live || process.env.PURSER_GAS_ENFORCE === "1";
+  const memory = new Map<string, string>();
+  const kv: GasStore = store ?? { get: (k) => memory.get(k) ?? null, set: (k, v) => void memory.set(k, v) };
+  const today = () => new Date().toISOString().slice(0, 10);
+  const spentKey = (who: string, open: boolean) => `gas_spent:${today()}:${who.toLowerCase()}${open ? ":open" : ""}`;
+  const spentOf = (who: string, open = false) => BigInt(kv.get(spentKey(who, open)) ?? "0");
+  const addSpent = (who: string, open: boolean, wei: bigint) => {
+    kv.set(spentKey(who, false), (spentOf(who) + wei).toString());
+    if (open) kv.set(spentKey(who, true), (spentOf(who, true) + wei).toString());
+  };
   const pollingInterval = local ? 50 : 1000;
 
   const accounts = {
@@ -81,41 +106,49 @@ export function makeChain(cfg: Config) {
 
   // One queue per sender so nonces never race.
   const queues = new Map<string, Promise<unknown>>();
+  /**
+   * Sends from an engine key. The gas is estimated first and the transaction is refused when the estimate is above
+   * `maxGas` (by kind, GAS_LIMITS); it is sent with that limit, so it can never burn more. `open` marks a settlement
+   * for a payer that is not an account: it counts against the smaller open share of the day's budget too.
+   */
   async function send(
     account: PrivateKeyAccount,
-    tx: { to: Address; data?: Hex; value?: bigint; gas?: bigint },
+    tx: { to: Address; data?: Hex; value?: bigint; gas?: bigint; maxGas?: bigint; open?: boolean },
   ): Promise<TransactionReceipt> {
     if (!broadcast) throw new Error("broadcast disabled: this engine only sends transactions to a local node");
-    if (live) {
-      const day = new Date().toISOString().slice(0, 10);
-      const s = spent.get(account.address);
-      const used = s && s.day === day ? s.wei : 0n;
-      if (used >= capWei) throw new Error("the engine's gas budget for today is used up; it resets at 00:00 UTC");
-    }
+    const budgetCheck = () => {
+      if (!enforce) return;
+      if (spentOf(account.address) >= capWei) throw new GasRefused("the engine's gas budget for today is used up; it resets at 00:00 UTC");
+      if (tx.open && spentOf(account.address, true) * 100n >= capWei * openPct) throw new GasRefused("the facilitator's gas share for today is used up; it resets at 00:00 UTC");
+    };
+    budgetCheck();
     const prev = queues.get(account.address) ?? Promise.resolve();
     const run = prev.catch(() => undefined).then(async () => {
+      budgetCheck(); // again: other sends may have spent while this one waited in the queue
+      const maxGas = tx.maxGas ?? GAS_LIMITS.default;
+      let gas = tx.gas;
+      if (gas === undefined) {
+        const est = await pub.estimateGas({ account, to: tx.to, data: tx.data, value: tx.value ?? 0n });
+        if (est > maxGas) throw new GasRefused(`the transaction needs about ${est} gas, more than the ${maxGas} this kind of transaction may use`);
+        gas = (est * 13n) / 10n > maxGas ? maxGas : (est * 13n) / 10n;
+      } else if (gas > maxGas) throw new GasRefused(`a gas limit of ${gas} is above the ${maxGas} this kind of transaction may use`);
       const hash = await wallet(account).sendTransaction({
         account,
         chain,
         to: tx.to,
         data: tx.data,
         value: tx.value ?? 0n,
-        gas: tx.gas,
+        gas,
       });
       const r = await pub.waitForTransactionReceipt({ hash, pollingInterval });
-      if (live) {
-        const day = new Date().toISOString().slice(0, 10);
-        const prevSpent = spent.get(account.address);
-        const base = prevSpent && prevSpent.day === day ? prevSpent.wei : 0n;
-        spent.set(account.address, { day, wei: base + r.gasUsed * r.effectiveGasPrice });
-      }
+      addSpent(account.address, !!tx.open, r.gasUsed * r.effectiveGasPrice);
       return r;
     });
     queues.set(account.address, run);
     return run as Promise<TransactionReceipt>;
   }
 
-  return { chain, pub, broadcast, live, accounts, send, wallet };
+  return { chain, pub, broadcast, live, accounts, send, wallet, gasSpent: spentOf };
 }
 
 /**

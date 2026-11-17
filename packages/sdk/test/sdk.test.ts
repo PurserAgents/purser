@@ -15,6 +15,8 @@ import { Purser, payDigest, randomNonce, serviceId, signPayIntent, usdg, verifyW
 import type { EngineEvent } from "../src/schema.ts";
 
 process.env.PURSER_LOG = "0";
+// the webhook receiver runs on this machine; the engine refuses private hosts unless told otherwise
+process.env.PURSER_FETCH_PRIVATE = "1";
 
 describe("SDK helpers", () => {
   it("usdg() and serviceId()", () => {

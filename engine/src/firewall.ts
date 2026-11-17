@@ -6,7 +6,7 @@ import { decodeRevertData, REVERT_WORDS } from "./chain.ts";
 import { requireDep, type Ctx } from "./ctx.ts";
 import type { PolicyResult } from "./policy.ts";
 import { fmt, id, json, lower, now, parseJson, sameAddress, ZERO } from "./util.ts";
-import { protectSchedules, recordShieldStop, recordThreats, sentencePrints, shieldCheck, type ThreatCandidate } from "./shield.ts";
+import { NOT_GENUINE, protectSchedules, recordShieldStop, recordThreats, sentencePrints, shieldCheck, type ThreatCandidate } from "./shield.ts";
 
 // ---------------------------------------------------------------------------------------------------- simulation
 
@@ -300,7 +300,10 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
   const raw = await simulate(ctx, input.tx);
   const sim = await summarize(ctx, raw, input.safe, balances);
   const queuedOnly = raw.success && !sim.assetChanges.some((c) => sameAddress(c.from, input.safe)) && input.policy.needsApproval;
-  if (!raw.success && !input.policy.reasons.length) {
+  if (raw.backend === "none") {
+    // no simulation means nothing below was checked: never sign or send on that
+    add("no_simulation", "block", "The firewall could not simulate this", "The node answered neither eth_simulateV1 nor debug_traceCall, so the payment cannot be checked. Nothing was sent.");
+  } else if (!raw.success && !input.policy.reasons.length) {
     add("simulation_failed", "block", "The payment would fail on chain", sim.revertReason ?? "The simulation reverted.");
   }
 
@@ -369,9 +372,11 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
   }
 
   // 6. known-bad patterns in call data
-  for (const c of sim.calls.length ? sim.calls : [{ selector: input.callData && size(input.callData) >= 4 ? slice(input.callData, 0, 4) : null, to: input.to }]) {
-    const sel = c.selector?.toLowerCase();
-    if (sel && DANGEROUS_SELECTORS[sel])
+  // the agent's own call data is always checked: eth_simulateV1 reports only the outer call into the module
+  const selectors = new Set(sim.calls.map((c) => c.selector?.toLowerCase()).filter(Boolean) as string[]);
+  if (input.callData && size(input.callData) >= 4) selectors.add(slice(input.callData, 0, 4).toLowerCase());
+  for (const sel of selectors) {
+    if (DANGEROUS_SELECTORS[sel])
       add("dangerous_call", "block", "A takeover-style call", `The call runs ${DANGEROUS_SELECTORS[sel]}(), which changes who controls a contract.`);
   }
 
@@ -433,7 +438,8 @@ export async function evaluate(ctx: Ctx, input: FirewallInput): Promise<Firewall
   await ctx.audit.append("firewall", `verdict.${decision}`, verdict.safe, { verdict: verdict.id, intent: input.intentId, codes: reasons.map((r) => r.code) });
 
   // what this firewall caught goes on the shared list; what the list stopped is counted
-  if (decision === "block") {
+  // only a real account's own agent reports: a forged or foreign request blocks, and reports nothing
+  if (decision === "block" && !reasons.some((r) => NOT_GENUINE.has(r.code))) {
     const prints = inj.strong.length && !paysModelProvider ? sentencePrints(input.trigger).filter((p) => scanInjection(p.sentence).strong.length).map((p) => ({ print: p.print, why: scanInjection(p.sentence).strong[0] })) : [];
     const fresh = recordThreats(ctx, input.safe, verdict.id, threats, prints, verdict.createdAt);
     if (fresh.length) await ctx.audit.append("shield", "shield.flagged", verdict.safe, { verdict: verdict.id, addresses: fresh, prints: prints.length });

@@ -6,6 +6,7 @@ import { purserModuleAbi } from "../../packages/sdk/src/abi.ts";
 import type { StoreService } from "../../packages/sdk/src/schema.ts";
 import { decodeHeader, encodeHeader, HEADER_REQUIRED, HEADER_RESPONSE, HEADER_SIGNATURE, HEADER_V1_PAYMENT, type PaymentPayload, type PaymentRequired, type PaymentRequirements } from "../../packages/sdk/src/x402.ts";
 import { accountRow, readChainAccount } from "./accounts.ts";
+import { checkUrl, guardedFetch } from "./netguard.ts";
 import { registerRoutes } from "./api/registry.ts";
 import { agent, body, param, safeParam, send, zAddr, zAmount } from "./api/http.ts";
 import { requireDep, type Ctx } from "./ctx.ts";
@@ -106,7 +107,7 @@ async function serve(ctx: Ctx, c: Context, s: ServiceRow): Promise<Response> {
   if (s.upstream) {
     const method = c.req.method;
     try {
-      const res = await fetch(s.upstream, { method, headers: { "content-type": c.req.header("content-type") ?? "application/json" }, body: method === "GET" || method === "HEAD" ? undefined : await c.req.text() });
+      const res = await guardedFetch(ctx, s.upstream, { method, headers: { "content-type": c.req.header("content-type") ?? "application/json" }, body: method === "GET" || method === "HEAD" ? undefined : await c.req.text(), timeoutMs: 30_000 });
       status = res.status;
       contentType = res.headers.get("content-type") ?? contentType;
       out = await res.text();
@@ -189,6 +190,12 @@ registerRoutes((app: Hono, ctx: Ctx) => {
       }),
     );
     if (BigInt(b.price) === 0n) fail(400, "bad_request", "price must be above zero");
+    if (b.upstream)
+      try {
+        checkUrl(ctx, b.upstream);
+      } catch (e) {
+        fail(400, "fetch_refused", (e as Error).message);
+      }
     const sid = id("svc");
     ctx.db
       .prepare("INSERT INTO services (id, safe, name, description, model, token, price, period, upstream, response, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)")

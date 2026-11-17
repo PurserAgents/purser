@@ -5,7 +5,8 @@ import type { Address } from "viem";
 import { submitIntent } from "../src/intents.ts";
 import { chargeSubscriptions } from "../src/recurring.ts";
 import { listWatchEvents } from "../src/watchdog.ts";
-import { sentencePrints, shieldStats } from "../src/shield.ts";
+import { readChainAccount } from "../src/accounts.ts";
+import { SHIELD, sentencePrints, shieldStats } from "../src/shield.ts";
 import { createAccount, makeWorld, randomAddress, usdg, usdgBalance, type World } from "./harness.ts";
 import { api, type Api } from "./util-api.ts";
 
@@ -23,27 +24,37 @@ describe("Purser Shield fingerprints", () => {
   });
 });
 
-describe("Purser Shield: one account attacked, every account protected (local)", () => {
+describe("Purser Shield: accounts attacked, every account protected (local)", () => {
   let w: World;
   let e: Api;
   let owner: string;
   let a: Address;
   let b: Address;
+  const reporters: Address[] = [];
   before(async () => {
     w = await makeWorld();
     e = api(w);
     owner = (await e.post("/v1/testmode/session")).body.token;
-    a = await createAccount(w, { name: "Agent A" });
+    for (let i = 0; i < SHIELD.reportersForAll; i++) reporters.push(await createAccount(w, { name: `Agent A${i}` }));
+    a = reporters[0];
     b = await createAccount(w, { name: "Agent B" });
+    // a report counts for every account only from accounts with a payment record
+    for (const r of reporters) assert.equal((await pay(r, randomAddress(), usdg(1), "Pay the data vendor.")).intent.status, "executed");
   });
   after(async () => w?.stop());
 
   const pay = (safe: Address, to: Address, amount: bigint, trigger?: string) =>
     submitIntent(w.ctx, { safe, spec: { kind: "pay", pay: { token: w.dep.usdg, to, amount } }, category: "transfer", signer: w.agent, meta: { trigger } });
+  /** the same attack caught on every reporting account (the list then protects every account) */
+  const caught = async (to: Address, trigger?: string) => {
+    const out = [];
+    for (const r of reporters) out.push(await pay(r, to, usdg(5), trigger));
+    return out[0];
+  };
 
-  it("an attack caught on one account puts the attacker on the list, and the next account never pays it", async () => {
+  it("an attack caught on several accounts puts the attacker on the list, and the next account never pays it", async () => {
     const attacker = randomAddress();
-    const first = await pay(a, attacker, usdg(5), planted(attacker));
+    const first = await caught(attacker, planted(attacker));
     assert.equal(first.verdict.decision, "block");
     assert.ok(first.verdict.reasons.some((r) => r.code === "injection"));
 
@@ -60,21 +71,23 @@ describe("Purser Shield: one account attacked, every account protected (local)",
     const feed = (await e.get("/v1/shield")).body;
     const t = feed.threats.find((x: any) => x.address === attacker.toLowerCase());
     assert.equal(t.kind, "planted_payee");
-    assert.equal(t.accounts, 1);
+    assert.equal(t.accounts, SHIELD.reportersForAll);
     assert.equal(t.stoppedElsewhere, 1);
     assert.ok(feed.prints.length >= 1, "the injected sentence is fingerprinted");
     assert.ok(feed.stats.stoppedByShield >= 1);
     // only the attacker's side is public: no account, owner, amount or the text itself
     const raw = JSON.stringify(feed).toLowerCase();
-    for (const secret of [a, b, w.owner.address]) assert.equal(raw.includes(secret.toLowerCase()), false, `feed leaks ${secret}`);
+    for (const secret of [...reporters, b, w.owner.address]) assert.equal(raw.includes(secret.toLowerCase()), false, `feed leaks ${secret}`);
     assert.equal(raw.includes("ignore all previous"), false, "the sentence itself is not shared");
     assert.equal((await e.get(`/v1/shield/address/${attacker}`)).body.flagged, true);
     assert.equal((await e.get(`/v1/shield/address/${randomAddress()}`)).body.flagged, false);
   });
 
   it("the same injected sentence is recognised on another account even when the address changes", async () => {
-    const one = randomAddress();
-    await pay(a, one, usdg(5), planted(one));
+    for (const r of reporters) {
+      const one = randomAddress();
+      await pay(r, one, usdg(5), planted(one));
+    }
     const other = randomAddress();
     const v = await pay(b, other, usdg(5), planted(other));
     assert.equal(v.verdict.decision, "block");
@@ -85,7 +98,7 @@ describe("Purser Shield: one account attacked, every account protected (local)",
     const fwd = privateKeyToAccount(generatePrivateKey());
     const code = "0x" + "c0de".repeat(10);
     await w.rpc("anvil_setCode", [fwd.address, "0xef0100" + code.slice(2)]);
-    const v = await pay(a, fwd.address, usdg(5));
+    const v = await caught(fwd.address);
     assert.ok(v.verdict.reasons.some((r) => r.code === "delegated_eoa"));
     const feed = (await e.get("/v1/shield")).body;
     assert.equal(feed.threats.find((x: any) => x.address === fwd.address.toLowerCase())?.kind, "forwarding_wallet");
@@ -102,7 +115,7 @@ describe("Purser Shield: one account attacked, every account protected (local)",
 
   it("warn mode holds the payment for the owner, who releases or rejects it", async () => {
     const attacker = randomAddress();
-    await pay(a, attacker, usdg(5), planted(attacker));
+    await caught(attacker, planted(attacker));
     assert.equal((await e.patch(`/v1/accounts/${b}/shield`, { mode: "warn" })).status, 401, "only the owner changes it");
     assert.equal((await e.patch(`/v1/accounts/${b}/shield`, { mode: "warn" }, owner)).status, 200);
     assert.equal((await e.get(`/v1/accounts/${b}/shield`)).body.mode, "warn");
@@ -133,7 +146,7 @@ describe("Purser Shield: one account attacked, every account protected (local)",
     await e.patch(`/v1/accounts/${b}/shield`, { mode: "block" }, owner);
   });
 
-  it("a payee flagged elsewhere stops scheduled payouts at once, whatever the mode", async () => {
+  it("a payee flagged elsewhere stops scheduled payouts at once, whatever the mode, and never freezes the account", async () => {
     const k = await e.post(`/v1/accounts/${b}/keys`, { managed: true }, owner);
     const acct = (await e.get(`/v1/accounts/${b}`)).body;
     await e.post("/v1/testmode/safe-tx", (await e.post(`/v1/accounts/${b}/rules/prepare`, { config: { ...acct.config, agent: k.body.key.sessionAddress } })).body);
@@ -143,10 +156,12 @@ describe("Purser Shield: one account attacked, every account protected (local)",
     assert.equal(await usdgBalance(w, vendor), usdg(4));
     await e.patch(`/v1/accounts/${b}/shield`, { mode: "warn" }, owner);
 
-    // another account's firewall catches the same address in an attack
-    await pay(a, vendor, usdg(5), planted(vendor));
+    // other accounts' firewalls catch the same address in attacks
+    await caught(vendor, planted(vendor));
     const ev = listWatchEvents(w.ctx, b).find((x) => x.kind === "shield");
     assert.ok(ev, "the owner of the schedule is told");
+    assert.equal(ev!.action, "alert");
+    assert.equal((await readChainAccount(w.ctx, b)).frozen, false, "a list entry never freezes an account");
     await w.rpc("evm_increaseTime", [86400]);
     await w.rpc("evm_mine", []);
     assert.equal(await chargeSubscriptions(w.ctx), 0);

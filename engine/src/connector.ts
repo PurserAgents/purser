@@ -15,7 +15,14 @@ import { submitIntent } from "./intents.ts";
 import { insertReceipt } from "./receipts.ts";
 import { fail, id, lower, now, parseJson, sameAddress, usd, ZERO } from "./util.ts";
 import { network, recordFailedDelivery, recordServiceUse } from "./x402.ts";
+import { checkUrl, FetchRefused, guardedFetch } from "./netguard.ts";
 import { chatAtCost, isAtCostModel, modelsConfigured, priceList } from "./models.ts";
+
+/** A URL the guard refused is the caller's mistake (400); anything else is passed on. */
+const refused = (e: unknown): never => {
+  if (e instanceof FetchRefused) fail(400, "fetch_refused", e.message);
+  throw e;
+};
 
 // ---------------------------------------------------------------------------------------------------- providers
 
@@ -120,12 +127,12 @@ export async function chat(ctx: Ctx, auth: { safe: Address; session: import("vie
     headers["x-purser-payment"] = payment.intent.txHash!;
   }
 
-  let res = await fetch(`${provider.baseUrl.replace(/\/$/, "")}/chat/completions`, { method: "POST", headers, body: JSON.stringify(upstream) });
+  let res = await guardedFetch(ctx, `${provider.baseUrl.replace(/\/$/, "")}/chat/completions`, { method: "POST", headers, body: JSON.stringify(upstream), timeoutMs: 120_000 }).catch(refused);
   if (res.status === 402 && provider.kind === "x402") {
     const paid = await payX402(ctx, auth, res, { url: `${provider.baseUrl}/chat/completions`, trigger, category: "model", memo: `${provider.id}/${modelId}`, taskId: meta.taskId, service: `model:${provider.id}/${modelId}` });
     if (!paid.header) return { status: 402, body: { error: { code: "payment_refused", message: paid.reason } }, cost: { micro: 0n, paid: false, payment: paid.payment } };
     payment = paid.payment;
-    res = await fetch(`${provider.baseUrl.replace(/\/$/, "")}/chat/completions`, { method: "POST", headers: { ...headers, [HEADER_SIGNATURE]: paid.header }, body: JSON.stringify(upstream) });
+    res = await guardedFetch(ctx, `${provider.baseUrl.replace(/\/$/, "")}/chat/completions`, { method: "POST", headers: { ...headers, [HEADER_SIGNATURE]: paid.header }, body: JSON.stringify(upstream), timeoutMs: 120_000 }).catch(refused);
   }
   const out = (await res.json().catch(() => ({}))) as { usage?: { prompt_tokens?: number; completion_tokens?: number } };
   const usage: ModelUsage = { provider: provider.id, model: modelId, promptTokens: out.usage?.prompt_tokens ?? 0, completionTokens: out.usage?.completion_tokens ?? 0 };
@@ -213,15 +220,15 @@ export async function x402Fetch(
   auth: { safe: Address; session: import("viem/accounts").PrivateKeyAccount | null },
   r: { url: string; method?: string; headers?: Record<string, string>; body?: string; maxAmount?: bigint; trigger?: string | null; taskId?: string | null },
 ) {
-  const init: RequestInit = { method: r.method ?? "GET", headers: r.headers, body: r.body };
-  const first = await fetch(r.url, init);
+  const init = { method: r.method ?? "GET", headers: r.headers, body: r.body };
+  const first = await guardedFetch(ctx, r.url, init).catch(refused);
   if (first.status !== 402) return { status: first.status, paid: false, body: await first.text(), headers: headersObject(first.headers), payment: null as PayResult | null, settlement: null as SettleResponse | null };
   const p = await payX402(ctx, auth, first, { url: r.url, trigger: r.trigger, maxAmount: r.maxAmount, taskId: r.taskId });
   if (!p.header) {
     if (p.requirement) recordServiceUse(ctx, r.url, p.requirement, lower(auth.safe), false);
     return { status: 402, paid: false, body: JSON.stringify({ error: p.reason }), headers: {}, payment: p.payment, settlement: null };
   }
-  const second = await fetch(r.url, { ...init, headers: { ...(r.headers ?? {}), [HEADER_SIGNATURE]: p.header } });
+  const second = await guardedFetch(ctx, r.url, { ...init, headers: { ...(r.headers ?? {}), [HEADER_SIGNATURE]: p.header } }).catch(refused);
   const settlement = decodeHeader<SettleResponse>(second.headers.get(HEADER_RESPONSE));
   if (!settlement?.success && second.status >= 400 && p.requirement) recordFailedDelivery(ctx, r.url, p.requirement);
   if (settlement?.success && p.requirement) {
@@ -291,6 +298,11 @@ registerRoutes((app: Hono, ctx: Ctx) => {
         models: z.array(z.object({ id: z.string(), inputMicroPer1M: z.number().nonnegative(), outputMicroPer1M: z.number().nonnegative(), perRequestMicro: z.number().nonnegative().optional() })).min(1),
       }),
     );
+    try {
+      checkUrl(ctx, p.baseUrl);
+    } catch (e) {
+      refused(e);
+    }
     addProvider(ctx, safe, p as Provider);
     await ctx.audit.append("owner", "provider.added", safe, { provider: p.id, kind: p.kind, baseUrl: p.baseUrl });
     return send(c, { id: p.id, kind: p.kind, baseUrl: p.baseUrl, models: p.models }, 201);

@@ -3042,6 +3042,9 @@ Response (HTTP 200):
 ### POST /v1/x402/fetch
 
 Fetches a URL; on a 402 pays it from the account (within `maxAmount`, after the rules and the firewall) and fetches again.
+Only public https URLs: loopback, private, link-local and other internal addresses are refused (`400 fetch_refused`),
+redirects are returned as they are and not followed, and an answer may be at most 2 MB. The same applies to webhook
+URLs, model provider URLs and storefront upstreams.
 
 Auth: agent key (`Authorization: Bearer prs_...`), scope `x402`.
 

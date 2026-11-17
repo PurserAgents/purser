@@ -2,6 +2,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import type { Hono } from "hono";
 import { z } from "zod";
 import type { EngineEvent, Webhook, WebhookDelivery, WebhookEventType } from "../../packages/sdk/src/schema.ts";
+import { checkUrl, guardedFetch } from "./netguard.ts";
 import { registerRoutes } from "./api/registry.ts";
 import { body, owner, param, send, zAddr } from "./api/http.ts";
 import type { Ctx } from "./ctx.ts";
@@ -95,11 +96,12 @@ export async function deliver(ctx: Ctx): Promise<number> {
     if (now() < d.created_at + (BACKOFF[d.attempts] ?? 0)) continue;
     let code: number | null = null;
     try {
-      const res = await fetch(d.url, {
+      const res = await guardedFetch(ctx, d.url, {
         method: "POST",
         headers: { "content-type": "application/json", "Purser-Event": d.event, "Purser-Delivery": d.id, "Purser-Signature": signPayload(d.secret, d.body) },
         body: d.body,
-        signal: AbortSignal.timeout(5000),
+        timeoutMs: 5000,
+        maxBytes: 64_000,
       });
       code = res.status;
     } catch {
@@ -138,6 +140,11 @@ registerRoutes((app: Hono, ctx: Ctx) => {
   app.post("/v1/webhooks", async (c) => {
     const who = owner(ctx, c);
     const b = await body(c, z.object({ url: z.string().url().refine((u) => /^https?:\/\//.test(u), "http or https only"), events: z.array(z.enum(WEBHOOK_EVENTS as [WebhookEventType, ...WebhookEventType[]])).min(1), safe: zAddr.nullable().default(null) }));
+    try {
+      checkUrl(ctx, b.url);
+    } catch (e) {
+      fail(400, "fetch_refused", (e as Error).message);
+    }
     const wid = id("wh");
     const secret = `whsec_${randomBytes(24).toString("base64url")}`;
     ctx.db.prepare("INSERT INTO webhooks (id, url, secret, events, safe, active, created_at) VALUES (?, ?, ?, ?, ?, 1, ?)").run(wid, b.url, secret, JSON.stringify(b.events), b.safe, now());
